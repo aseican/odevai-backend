@@ -9,22 +9,29 @@ const pdfRoutes = require("./routes/pdfRoutes");
 
 const app = express();
 
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+// --- CORS VE GÜVENLİK AYARLARI ---
+app.use(cors({
+    origin: [
+        "https://www.odevai.pro", 
+        "https://odevai.pro",
+        "http://localhost:3000", 
+        "https://odevai-frontend.vercel.app"
+    ],
+    credentials: true, // Token/Cookie izni
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // Tüm metodlara izin ver
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+// --------------------------------
 
 app.use(express.json());
 
 connectDB();
 
+// Rotalar
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/pdf", pdfRoutes);
 
-const PORT = process.env.PORT || 10000;
-
-app.listen(PORT, () => console.log("🔥 Backend çalışıyor:", PORT));
+// --- KRİTİK: PORT 80 AYARI ---
+// Cloudflare direkt buraya bağlanacak
+app.listen(80, () => console.log("🔥 Backend 80 portunda çalışıyor"));
