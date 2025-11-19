@@ -1,27 +1,23 @@
 const express = require("express");
 const router = express.Router();
-
-const { protect } = require("../middleware/auth");
-const admin = require("../middleware/admin");
-
-const {
-  getStats,
-  getUsers,
-  updateCredits,
-  updatePrompt,
-  updateFeatures
+const { protect, admin } = require("../middleware/authMiddleware");
+const { 
+  getAllUsers, 
+  updateUser, 
+  getStats, 
+  updatePrompt, 
+  updateFeatures 
 } = require("../controllers/adminController");
 
-// Admin → Tüm rotalar protect + admin
-router.use(protect);
-router.use(admin);
+// Tüm admin işlemleri için önce Giriş(protect) sonra Admin Yetkisi(admin) kontrolü yapılır
+router.use(protect, admin);
 
-/* ROUTES */
-router.get("/stats", getStats);
-router.get("/users", getUsers);
+router.get("/stats", getStats);         // İstatistikler
+router.get("/users", getAllUsers);      // Kullanıcı listesi
+router.put("/users/:id", updateUser);   // Kullanıcı düzenle (Kredi/Ban)
 
-router.post("/credits", updateCredits);
-router.post("/prompt", updatePrompt);
-router.post("/features", updateFeatures);
+// Senin özel ayarların
+router.post("/update-prompt", updatePrompt);
+router.post("/update-features", updateFeatures);
 
 module.exports = router;
