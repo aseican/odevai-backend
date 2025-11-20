@@ -23,7 +23,8 @@
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
     "rehype-raw": "^7.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "resend": "^6.5.2"
   },
   "devDependencies": {
     "nodemon": "^2.0.22"

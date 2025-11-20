@@ -1,24 +1,23 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
+
+// Resend API Anahtarını tırnak içine yapıştır:
+const resend = new Resend('re_9dP3o3ix_Kts59mWiG8Q5qjEJB3n3ir2d'); 
 
 const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    host: "smtp.hostinger.com",
-    port: 587,                // 465 yerine 587 yaptık
-    secure: false,            // 587 için false olmalı
-    auth: {
-      user: "info@odevai.pro", 
-      pass: "SENIN_HOSTINGER_SIFREN", // Şifreni buraya tekrar yazmayı unutma!
-    },
-  });
+  try {
+    const data = await resend.emails.send({
+      // Gönderen ismi ve adresi (Domain onaylanınca çalışır)
+      from: 'OdevAI Destek <info@odevai.pro>', 
+      to: options.email,
+      subject: options.subject,
+      html: options.message, 
+    });
 
-  const mailOptions = {
-    from: "OdevAI Destek <info@odevai.pro>",
-    to: options.email,
-    subject: options.subject,
-    html: options.message,
-  };
-
-  await transporter.sendMail(mailOptions);
+    console.log("Mail başarıyla gönderildi. ID:", data.id);
+  } catch (error) {
+    console.error("Mail gönderme hatası:", error);
+    // Hata olsa bile kullanıcıya "Hata" dönmeyelim, loglayalım yeter.
+  }
 };
 
 module.exports = sendEmail;
