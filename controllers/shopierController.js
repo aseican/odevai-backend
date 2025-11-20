@@ -45,6 +45,8 @@ exports.startPayment = async (req, res) => {
       callbackUrl: "https://api.odevai.pro/api/shopier/callback",
     });
 
+    console.log("🟧 SHOPIER FORM HTML:\n", paymentHTML);
+
     res.send(paymentHTML);
   } catch (err) {
     console.error("❌ Shopier Error:", err);
