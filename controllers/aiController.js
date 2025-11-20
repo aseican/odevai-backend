@@ -1,118 +1,147 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const OpenAI = require("openai");
 const User = require("../models/User");
 const pdfParse = require("pdf-parse");
 const PptxGenJS = require("pptxgenjs");
 
 // .env dosyasından API Key'i al
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 /* ==========================================================================
-   YARDIMCI FONKSİYONLAR VE ARAÇLAR
+   BÖLÜM 1: YARDIMCI ARAÇLAR VE MOTOR (UTILITIES)
    ========================================================================== */
 
-// 1. Görsel Oluşturucu (Sunumlar için)
+/**
+ * 1. Görsel Motoru (Pollinations AI)
+ * Sunumlar için konuyla alakalı, yüksek çözünürlüklü görseller üretir.
+ * Flux modelini kullanarak daha gerçekçi sonuçlar hedefler.
+ */
 function generateImageUrl(keyword) {
-  const encodedKey = encodeURIComponent(keyword);
+  const encodedKey = encodeURIComponent(keyword + " high quality, detailed, professional, cinematic lighting");
   return `https://image.pollinations.ai/prompt/${encodedKey}?width=1024&height=768&nologo=true&model=flux`;
 }
 
-// 2. JSON Temizleyici (AI'ın verdiği Markdown kirliliğini temizler)
+/**
+ * 2. JSON Temizleyici ve Onarıcı
+ * AI bazen JSON çıktısını Markdown blokları (```json ... ```) içine hapseder.
+ * Bu fonksiyon o blokları temizler ve saf JSON stringini döndürür.
+ */
 function cleanJSON(text) {
   return text.replace(/```json/g, "").replace(/```/g, "").trim();
 }
 
-// 3. Model Ayarları ve Çağırma (Sıcaklık ayarı ile yaratıcılığı kontrol ediyoruz)
-async function callGemini(prompt, creativity = 0.7) {
-  // gemini-1.5-pro daha zeki, flash daha hızlı. Premium hissi için PRO kullanabiliriz ama Flash da iş görür.
-  // Şimdilik Flash ile devam edelim, hız önemli.
-  const model = genAI.getGenerativeModel({ 
-    model: "gemini-1.5-flash",
-    generationConfig: {
-      temperature: creativity, // 0.0 = Robotik, 1.0 = Şairane
-      maxOutputTokens: 8192,   // Maksimum uzunluk (Çok uzun cevaplar için)
-    }
-  });
+/**
+ * 3. Gelişmiş OpenAI Motoru (Hata Yönetimli)
+ * 'temperature' parametresi ile yaratıcılık seviyesini kontrol ederiz.
+ * (0.1 = Robotik/Kesin, 1.0 = Şairane/Yaratıcı)
+ */
+async function callOpenAI(prompt, creativity = 0.7) {
+  try {
+    const completion = await openai.chat.completions.create({
+      messages: [
+        { role: "system", content: "Sen çok yetenekli, akademik formatlara hakim ve Markdown dilini mükemmel kullanan bir yapay zeka asistanısın." },
+        { role: "user", content: prompt }
+      ],
+      model: "gpt-4o-mini", // Hem hızlı, hem ucuz, hem zeki
+      temperature: creativity,
+      max_tokens: 4000, // Uzun cevaplar için limit
+    });
 
-  const result = await model.generateContent(prompt);
-  const response = await result.response;
-  return response.text();
+    return completion.choices[0].message.content;
+  } catch (error) {
+    console.error("OpenAI API Hatası:", error);
+    throw new Error("Yapay zeka servisine şu an ulaşılamıyor. Lütfen kısa süre sonra tekrar deneyin.");
+  }
+}
+
+// --- KREDİ DÜŞME FONKSİYONU (HERKES İÇİN GEÇERLİ) ---
+async function handleCreditDeduction(userId, cost) {
+  // Admin kontrolü yok, herkesten düşer. Atomik işlem ($inc) kullanılır.
+  await User.findByIdAndUpdate(userId, { $inc: { credits: -cost } });
 }
 
 /* ==========================================================================
-   GELİŞMİŞ PROMPT MİMARİSİ (PROMPT ENGINEERING V2.0)
+   BÖLÜM 2: PROMPT MÜHENDİSLİĞİ (MASTER MIND)
    ========================================================================== */
 
-// Bu fonksiyon, kullanıcının seçtiği seviyeye göre AI'ın "Beynini" yeniden programlar.
+/**
+ * Bu fonksiyon, kullanıcının seçtiği seviyeye ve üsluba göre
+ * AI'ın kişiliğini (Persona) ve kurallarını (Ruleset) sıfırdan inşa eder.
+ */
 function buildSystemInstruction(level, style, length) {
   
-  // A) UZUNLUK STRATEJİSİ
+  // --- UZUNLUK STRATEJİSİ ---
   let lengthDirective = "";
-  if (length === "Kısa") lengthDirective = "Özet niteliğinde, net ve vurucu ol. Lafı uzatma. Yaklaşık 300-500 kelime.";
-  else if (length === "Orta") lengthDirective = "Konuyu detaylandır ama boğma. Örnekler ver. Yaklaşık 800-1200 kelime.";
-  else lengthDirective = "ULTRA DETAYLI OLACAKSIN. Konunun atomlarına in. Tarihçe, neden-sonuç, gelecek projeksiyonu... Her şeyi yaz. En az 1500-2000 kelime hedefle.";
+  if (length === "Kısa") {
+    lengthDirective = "Özet niteliğinde, net, vurucu ve lafı uzatmayan bir yapı kur. Yaklaşık 400-500 kelime.";
+  } else if (length === "Orta") {
+    lengthDirective = "Konuyu detaylandır, örnekler ver, alt başlıklarla zenginleştir. Yaklaşık 800-1200 kelime.";
+  } else {
+    lengthDirective = "ULTRA DETAYLI VE KAPSAMLI OL. Konunun tarihçesine, nedenlerine, sonuçlarına ve geleceğine değin. En az 1500-2000 kelime hedefle.";
+  }
 
-  // B) PERSONA (KİMLİK) STRATEJİSİ
+  // --- PERSONA (KİMLİK) VE KURALLAR ---
   let persona = "";
   let formatRules = "";
 
   switch (level) {
     case "İlkokul":
       persona = `
-        KİMLİK: Sen çocukların en sevdiği, Disney karakteri gibi konuşan neşeli bir öğretmensin.
-        TON: Enerjik, masalsı, basit ve oyunlaştırılmış.
-        YASAKLAR: Akademik terimler, uzun paragraflar, sıkıcı cümleler.
-        ÖZEL GÖREV: Her paragrafta çocukların hayal gücünü çalıştıracak sorular sor.
+        KİMLİK: Sen çocukların çok sevdiği, enerjik, masalcı bir öğretmensin.
+        TON: Eğlenceli, basit, samimi ve merak uyandırıcı.
+        YASAKLAR: Akademik jargon, uzun ve karmaşık cümleler, sıkıcı tanımlar.
+        GÖREV: Konuyu bir oyun veya hikaye gibi anlat.
       `;
       formatRules = `
-        - Bol bol Emoji kullan (🌟, 🚀, 🎈).
-        - Başlıkları sanki bir hikaye kitabı gibi at.
-        - "Biliyor muydun?" kutucukları oluştur.
+        - Her paragrafta en az 2-3 uygun Emoji kullan (🌟, 🚀, 🎈).
+        - Başlıkları çocukların ilgisini çekecek şekilde at (Örn: "Biliyor Muydun?", "Sihirli Bilgiler").
+        - "Merhaba küçük kaşif!" gibi hitaplarla başla.
       `;
       break;
 
     case "Ortaokul":
     case "Lise":
       persona = `
-        KİMLİK: Sen öğrencileri LGS/YKS sınavlarına hazırlayan, "hap bilgi" uzmanı, karizmatik bir özel ders hocasısın.
+        KİMLİK: Sen öğrencileri LGS/YKS sınavlarına hazırlayan, "hap bilgi" uzmanı, zeki bir özel ders hocasısın.
         TON: Motive edici, net, akılda kalıcı ve stratejik.
-        ÖZEL GÖREV: Konuyu anlatırken sınavda çıkabilecek yerleri özellikle vurgula.
+        GÖREV: Konunun sınavda çıkabilecek kısımlarını vurgula, gereksiz detaylardan kaçın.
       `;
       formatRules = `
-        - Uzun yazı blokları YASAK. Bilgileri madde madde (Bullet points) ver.
-        - Önemli tarihleri, terimleri ve formülleri **KALIN** yaz.
-        - Karşılaştırma yaparken Markdown Tablosu kullan.
-        - Konunun özünü anlatan bir "TL;DR" (Özet) kutusu ekle.
+        - Uzun paragraflar YASAK. Bilgileri madde madde (Bullet points) ver.
+        - Önemli tarihleri, terimleri ve formülleri **KALIN** yazarak vurgula.
+        - Konunun özünü anlatan bir "Özet Kutusu" ekle.
       `;
       break;
 
     case "Üniversite":
     case "Yüksek Lisans":
       persona = `
-        KİMLİK: Sen Oxford Üniversitesi'nde ders veren, alanında otorite sahibi, titiz ve eleştirel bir profesörsün.
+        KİMLİK: Sen Oxford Üniversitesi'nde kürsü sahibi, alanında otorite, titiz ve eleştirel bir profesörsün.
         TON: Resmi, terminolojik, analitik, objektif ve sofistike.
-        YASAKLAR: Emoji, "arkadaşlar" gibi samimi hitaplar, yüzeysel genellemeler.
-        ÖZEL GÖREV: Konuyu sadece anlatma; eleştir, antitezler sun ve sentez yap.
+        YASAKLAR: Emoji, "arkadaşlar" gibi samimi hitaplar, yüzeysel genellemeler, kaynak gösterilmeyen iddialar.
+        GÖREV: Konuyu sadece anlatma; eleştir, antitezler sun, sentez yap ve literatürle destekle.
       `;
       formatRules = `
-        - Akademik makale formatında yaz (Özet, Giriş, Metodoloji, Tartışma, Sonuç).
-        - Mutlaka literatürden (gerçek veya temsili) referanslar ver (APA formatında).
-        - Karmaşık verileri Markdown tablolarıyla sun.
+        - Akademik makale formatında yaz (Özet, Giriş, Literatür Taraması, Metodoloji/Analiz, Tartışma, Sonuç).
+        - Mutlaka metin içi atıf ve en sonda KAYNAKÇA (APA formatında) ver.
+        - Karmaşık verileri analiz et.
         - Alt başlıkları hiyerarşik kullan (#, ##, ###).
       `;
       break;
 
     default:
-      persona = "Sen çok yetenekli ve yardımsever bir yapay zeka asistanısın.";
+      persona = "Sen çok yetenekli, bilgili ve yardımsever bir yapay zeka asistanısın.";
   }
 
-  // C) ÜSLUP AYARI
+  // --- ÜSLUP AYARI ---
   let styleInstruction = "";
-  if (style === "Akademik") styleInstruction = "Dilin son derece resmi, nesnel ve kanıta dayalı olsun.";
-  if (style === "Samimi") styleInstruction = "Sanki bir arkadaşınla kahve içerken konuşuyormuş gibi rahat ve içten yaz.";
-  if (style === "Mizahi") styleInstruction = "Araya ince espriler, ironiler ve popüler kültür göndermeleri sıkıştır.";
-  if (style === "Eleştirel") styleInstruction = "Konuya şüpheci yaklaş, açıklarını bul, karşıt görüşleri savun.";
+  if (style === "Akademik") styleInstruction = "Dilin son derece resmi, nesnel, kanıta dayalı ve didaktik olsun.";
+  if (style === "Samimi") styleInstruction = "Sanki bir arkadaşınla kahve içerken konuşuyormuş gibi rahat, içten ve 'sen' diliyle yaz.";
+  if (style === "Mizahi") styleInstruction = "Araya ince espriler, ironiler, kelime şakaları ve popüler kültür göndermeleri sıkıştır.";
+  if (style === "Eleştirel") styleInstruction = "Konuya şüpheci yaklaş, açıklarını bul, karşıt görüşleri savun, sorgula.";
 
-  // MASTER PROMPT BİRLEŞTİRME
+  // MASTER PROMPT ÇIKTISI
   return `
     ${persona}
     
@@ -123,33 +152,33 @@ function buildSystemInstruction(level, style, length) {
     
     FORMAT KURALLARI:
     ${formatRules}
-    - Çıktıyı MÜKEMMEL BİR MARKDOWN formatında ver.
-    - Başlıkları ve alt başlıkları hiyerarşik kullan.
-    - Okuyucuyu metnin içinde tutmak için paragrafları kısa tut (Akademik hariç).
-    - ASLA ve ASLA giriş cümlesi olarak "Tabii, işte ödevin" gibi şeyler yazma. Direkt başlıkla gir.
+    - Çıktıyı MÜKEMMEL VE HATASIZ BİR MARKDOWN formatında ver.
+    - Okunabilirliği artırmak için paragrafları böl.
+    - ASLA giriş cümlesi olarak "Tabii, işte ödevin" gibi meta-konuşmalar yapma. Direkt başlıkla konuya gir.
   `;
 }
 
 /* ==========================================================================
-   CONTROLLER FONKSİYONLARI
+   BÖLÜM 3: CONTROLLER FONKSİYONLARI (İŞLEYİCİLER)
    ========================================================================== */
 
-/* ---------------------------------- */
-/* 1) PREMIUM ÖDEV OLUŞTURMA          */
-/* ---------------------------------- */
+/* --------------------------------------------------------------------------
+   1) ÖDEV OLUŞTURMA (HOMEWORK GENERATOR)
+   -------------------------------------------------------------------------- */
 exports.generateHomework = async (req, res) => {
   const { topic, level, length, style } = req.body;
 
   // Kredi Kontrolü (4 Kredi)
   const COST = 4;
-  if (!req.user || req.user.credits < COST) {
+  if (req.user.credits < COST) {
     return res.status(403).json({ message: "Yetersiz kredi. Premium içerik için yükleme yapın." });
   }
 
   try {
-    // Zekayı İnşa Et
+    // 1. Zekayı İnşa Et
     const systemInstruction = buildSystemInstruction(level, style, length);
 
+    // 2. Final Promptu Oluştur
     const finalPrompt = `
       ${systemInstruction}
       
@@ -161,14 +190,15 @@ exports.generateHomework = async (req, res) => {
       Başla.
     `;
 
-    // AI'ı Ateşle (Creativity 0.7 idealdir)
-    const content = await callGemini(finalPrompt, 0.7);
+    // 3. AI'ı Ateşle (Sıcaklık: 0.7 - Dengeli Yaratıcılık)
+    const content = await callOpenAI(finalPrompt, 0.7);
 
-    // Kredi Düş
-    req.user.credits -= COST;
-    await req.user.save();
+    // 4. Krediyi Düş ve Kaydet
+    await handleCreditDeduction(req.user._id, COST);
+    const updatedUser = await User.findById(req.user._id);
 
-    res.json({ content, credits: req.user.credits });
+    // 5. Cevabı Döndür
+    res.json({ content, credits: updatedUser.credits });
 
   } catch (error) {
     console.error("Ödev Hatası:", error);
@@ -176,43 +206,53 @@ exports.generateHomework = async (req, res) => {
   }
 };
 
-/* ---------------------------------- */
-/* 2) PDF DERİNLEMESİNE ANALİZ (ÖZET) */
-/* ---------------------------------- */
+/* --------------------------------------------------------------------------
+   2) PDF DERİNLEMESİNE ANALİZ (EXECUTIVE SUMMARY)
+   -------------------------------------------------------------------------- */
 exports.generatePdfSummary = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
+    if (!req.file) return res.status(400).json({ message: "Lütfen bir PDF dosyası yükleyin." });
 
+    // PDF'i Metne Çevir
     const data = await pdfParse(req.file.buffer);
-    // Token limitini zorlayalım, daha fazla okusun (30.000 karakter)
     const textContent = data.text?.trim().slice(0, 30000); 
 
     const COST = 4;
-    if (!req.user || req.user.credits < COST) {
+    if (req.user.credits < COST) {
       return res.status(403).json({ message: "Yetersiz kredi." });
     }
 
     const prompt = `
-      GÖREV: Sen dünyanın en iyi veri analisti ve editörüsün.
-      Aşağıdaki ham metni analiz et ve yönetici özeti (Executive Summary) formatında raporla.
+      GÖREV: Sen dünyanın en iyi veri analisti ve baş editörüsün.
+      Aşağıdaki ham metni analiz et ve profesyonel bir "Yönetici Özeti" (Executive Summary) raporu hazırla.
 
-      KURALLAR:
-      1. **Yönetici Özeti:** Metnin ne anlattığını 3 cümlede vurucu şekilde özetle.
-      2. **Anahtar Bulgular:** Metindeki en önemli 5-7 maddeyi bullet point ile listele.
-      3. **Sayısal Veriler:** Metinde geçen istatistik, tarih veya para birimi varsa bunları bir TABLO haline getir.
-      4. **Aksiyon Planı:** Bu metinden çıkarılması gereken ders veya yapılması gereken eylem nedir?
-      5. **Format:** Profesyonel Markdown kullan. Başlıklar, Kalın Yazılar, Alıntılar (> Quote).
+      RAPOR FORMATI:
+      # 📄 Belge Analiz Raporu
+
+      ## 🎯 Yönetici Özeti
+      (Metnin ne anlattığını, amacını ve sonucunu 3-4 vurucu cümleyle özetle.)
+
+      ## 🔑 Anahtar Bulgular (Key Takeaways)
+      - (En önemli 5-7 maddeyi buraya listele. Önemsiz detayları at.)
+      - (Önemli terimleri **kalın** yaz.)
+
+      ## 📊 Veri Analizi
+      (Eğer metinde istatistik, tarih, para birimi veya sayısal veri varsa bunları mutlaka bir MARKDOWN TABLOSU haline getir. Yoksa bu başlığı atla.)
+
+      ## 🚀 Aksiyon Planı / Sonuç
+      (Bu metinden çıkarılması gereken ders veya yapılması gereken eylem nedir?)
 
       METİN:
       ${textContent}
     `;
 
-    const resultText = await callGemini(prompt, 0.4); // Daha düşük yaratıcılık = Daha fazla doğruluk
+    // Analiz olduğu için yaratıcılığı düşük tutuyoruz (0.3), doğruluk artsın.
+    const resultText = await callOpenAI(prompt, 0.3);
 
-    req.user.credits -= COST;
-    await req.user.save();
+    await handleCreditDeduction(req.user._id, COST);
+    const updatedUser = await User.findById(req.user._id);
 
-    res.json({ content: resultText, credits: req.user.credits });
+    res.json({ content: resultText, credits: updatedUser.credits });
 
   } catch (error) {
     console.error("PDF Özet Hatası:", error);
@@ -220,9 +260,9 @@ exports.generatePdfSummary = async (req, res) => {
   }
 };
 
-/* ---------------------------------- */
-/* 3) ZORLAYICI SINAV HAZIRLAMA       */
-/* ---------------------------------- */
+/* --------------------------------------------------------------------------
+   3) ZORLAYICI SINAV HAZIRLAMA (EXAM CREATOR)
+   -------------------------------------------------------------------------- */
 exports.generatePdfQuestions = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
@@ -231,38 +271,38 @@ exports.generatePdfQuestions = async (req, res) => {
     const textContent = data.text?.trim().slice(0, 30000);
 
     const COST = 4;
-    if (!req.user || req.user.credits < COST) {
+    if (req.user.credits < COST) {
       return res.status(403).json({ message: "Yetersiz kredi." });
     }
 
     const prompt = `
-      GÖREV: Sen acımasız ama adil bir sınav hazırlayıcısısın.
-      Aşağıdaki metinden öğrencilerin bilgisini ve analiz yeteneğini ölçecek bir sınav kağıdı hazırla.
+      GÖREV: Sen acımasız ama adil bir sınav komisyonu başkanısın.
+      Aşağıdaki metinden öğrencilerin bilgisini, dikkatini ve analiz yeteneğini ölçecek kapsamlı bir sınav kağıdı hazırla.
 
       BÖLÜM 1: ÇOKTAN SEÇMELİ (5 Soru)
       - Sorular bilgi değil, yorum ve dikkat gerektirsin.
       - Şıklar birbirine yakın olsun (Çeldirici şıklar güçlü olsun).
       - A, B, C, D, E şıkları olsun.
 
-      BÖLÜM 2: AÇIK UÇLU (3 Soru)
-      - Öğrencinin metni yorumlamasını iste. "Sizce neden...", "Metne göre..." gibi.
+      BÖLÜM 2: AÇIK UÇLU VE YORUM (3 Soru)
+      - Öğrencinin metni yorumlamasını iste. "Metne göre yazarın amacı nedir?", "Bu durumun sonuçları ne olabilir?" gibi.
 
       BÖLÜM 3: DOĞRU / YANLIŞ (5 Soru)
       - Metindeki ince detaylardan D/Y soruları çıkar.
 
-      BÖLÜM 4: CEVAP ANAHTARI
-      - En altta, her bölümün doğru cevaplarını ve *neden* o cevabın doğru olduğunu kısaca açıkla.
+      --- CEVAP ANAHTARI ---
+      (En altta, her bölümün doğru cevaplarını ve *neden* o cevabın doğru olduğunu kısaca açıkla.)
 
       METİN:
       ${textContent}
     `;
 
-    const resultText = await callGemini(prompt, 0.5);
+    const resultText = await callOpenAI(prompt, 0.5); 
 
-    req.user.credits -= COST;
-    await req.user.save();
+    await handleCreditDeduction(req.user._id, COST);
+    const updatedUser = await User.findById(req.user._id);
 
-    res.json({ content: resultText, credits: req.user.credits });
+    res.json({ content: resultText, credits: updatedUser.credits });
 
   } catch (error) {
     console.error("Sınav Hatası:", error);
@@ -270,9 +310,9 @@ exports.generatePdfQuestions = async (req, res) => {
   }
 };
 
-/* ---------------------------------- */
-/* 4) PDF'TEN TED TALK KONUŞMASI      */
-/* ---------------------------------- */
+/* --------------------------------------------------------------------------
+   4) PDF'TEN TED TALK KONUŞMASI (SPEECH WRITER)
+   -------------------------------------------------------------------------- */
 exports.generatePdfToPresentationText = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
@@ -281,30 +321,30 @@ exports.generatePdfToPresentationText = async (req, res) => {
     const textContent = data.text?.trim().slice(0, 20000);
     
     const COST = 4;
-    if (!req.user || req.user.credits < COST) {
+    if (req.user.credits < COST) {
       return res.status(403).json({ message: "Yetersiz kredi." });
     }
 
     const prompt = `
-      GÖREV: Bu sıkıcı PDF dosyasını, sahnede binlerce kişiye yapılacak efsanevi bir TED Talk konuşma metnine çevir.
+      GÖREV: Bu sıkıcı ve teknik PDF içeriğini, binlerce kişiye hitap edilecek efsanevi bir TED Talk konuşma metnine çevir.
 
       KURALLAR:
-      - Giriş çok etkileyici bir soruyla veya hikayeyle başlasın.
-      - Dil çok akıcı, ilham verici ve retorik olsun.
-      - Aralara [Gülümse], [Durakla], [Seyirciye Bak] gibi sahne notları ekle.
-      - Konuyu basitleştir ama derinliğini kaybetme.
-      - Finalde ayakta alkışlatacak bir kapanış yap.
+      - Giriş çok etkileyici bir anekdot, soru veya şok edici bir veriyle başlasın.
+      - Dil çok akıcı, ilham verici, retorik ve duygusal olsun.
+      - Metnin aralarına parantez içinde sahne notları ekle. Örn: [Gülümse], [Seyirciye dön], [Sessizlik], [Slaydı değiştir].
+      - Konuyu basitleştir ama derinliğini kaybetme. "Storytelling" (Hikayeleştirme) tekniğini kullan.
+      - Finalde ayakta alkışlatacak, izleyiciyi harekete geçirecek bir kapanış (Call to Action) yap.
 
       METİN:
       ${textContent}
     `;
 
-    const resultText = await callGemini(prompt, 0.8); // Yüksek yaratıcılık
+    const resultText = await callOpenAI(prompt, 0.8);
 
-    req.user.credits -= COST;
-    await req.user.save();
+    await handleCreditDeduction(req.user._id, COST);
+    const updatedUser = await User.findById(req.user._id);
 
-    res.json({ content: resultText, credits: req.user.credits });
+    res.json({ content: resultText, credits: updatedUser.credits });
 
   } catch (error) {
     console.error("Konuşma Metni Hatası:", error);
@@ -312,17 +352,17 @@ exports.generatePdfToPresentationText = async (req, res) => {
   }
 };
 
-/* ---------------------------------- */
-/* 5) ULTRA PRO SUNUM (PPTX)          */
-/* ---------------------------------- */
+/* --------------------------------------------------------------------------
+   5) ULTRA PRO SUNUM OLUŞTURUCU (PPTX GENERATOR)
+   -------------------------------------------------------------------------- */
 function getThemeColors(themeName) {
-  // Daha modern renk paletleri
+  // Modern ve estetik renk paletleri
   const themes = {
-    modern: { bg: "FFFFFF", title: "1A202C", text: "4A5568", bar: "3182CE" }, // Mavi-Beyaz
-    dark:   { bg: "1A202C", title: "F7FAFC", text: "A0AEC0", bar: "63B3ED" }, // Koyu Mod
-    nature: { bg: "F0FFF4", title: "22543D", text: "48BB78", bar: "2F855A" }, // Yeşil
-    premium:{ bg: "000000", title: "FFD700", text: "E2E8F0", bar: "B794F4" }, // Altın-Siyah
-    sunset: { bg: "FFF5F5", title: "742A2A", text: "C53030", bar: "F56565" }  // Kırmızı tonlar
+    modern: { bg: "FFFFFF", title: "1A202C", text: "4A5568", bar: "3182CE" }, // Kurumsal Mavi
+    dark:   { bg: "1A202C", title: "F7FAFC", text: "A0AEC0", bar: "63B3ED" }, // Gece Modu
+    nature: { bg: "F0FFF4", title: "22543D", text: "48BB78", bar: "2F855A" }, // Doğa Yeşili
+    premium:{ bg: "000000", title: "FFD700", text: "E2E8F0", bar: "B794F4" }, // Altın Siyah
+    sunset: { bg: "FFF5F5", title: "742A2A", text: "C53030", bar: "F56565" }  // Sıcak Tonlar
   };
   return themes[themeName] || themes.modern;
 }
@@ -333,34 +373,34 @@ exports.generatePresentation = async (req, res) => {
 
     if (!topic) return res.status(400).json({ message: "Konu gerekli" });
 
-    // Sunum pahalı (8 Kredi)
     const COST = 8;
-    if (!req.user || req.user.credits < COST) {
+    if (req.user.credits < COST) {
       return res.status(403).json({ message: "Yetersiz kredi." });
     }
 
+    // 1. AI'dan JSON Formatında Slayt Planı İste
     const systemPrompt = `
-      GÖREV: Dünyanın en iyi sunum tasarımcısı sensin (McKinsey veya Apple standartlarında).
+      GÖREV: Dünyanın en iyi sunum tasarımcısı sensin (McKinsey, Apple standartlarında).
       KONU: "${topic}"
       
       AMAÇ: ${slideCount || 10} slaytlık, izleyiciyi sıkmayan, görsel odaklı ve vurucu bir sunum planı hazırla.
 
       KURALLAR:
-      1. Sadece JSON formatında çıktı ver. Başka hiçbir metin yazma.
-      2. "imageKeyword" alanı için Unsplash/DALL-E uyumlu İngilizce bir kelime seç.
-      3. "content" dizisi içindeki maddeler kısa ve öz olsun (Cümle değil, madde).
+      1. Sadece ve sadece GEÇERLİ BİR JSON formatında çıktı ver. Başka hiçbir giriş/çıkış cümlesi yazma.
+      2. "imageKeyword" alanı için Unsplash/DALL-E uyumlu, İngilizce, somut bir kelime seç (Örn: "meeting room" yerine "futuristic glass meeting room 4k").
+      3. "content" dizisi içindeki maddeler kısa ve öz olsun (Cümle değil, madde). En fazla 4 madde.
 
       JSON ŞEMASI:
       [
         {
-          "title": "Vurucu Başlık",
-          "content": ["Madde 1", "Madde 2", "Madde 3"],
-          "imageKeyword": "futuristic_city_cyberpunk" 
+          "title": "Vurucu Slayt Başlığı",
+          "content": ["Kısa Madde 1", "Kısa Madde 2", "Kısa Madde 3"],
+          "imageKeyword": "cyberpunk_city_night_neon" 
         }
       ]
     `;
 
-    const rawResponse = await callGemini(systemPrompt, 0.7);
+    const rawResponse = await callOpenAI(systemPrompt, 0.7);
     const jsonString = cleanJSON(rawResponse);
     
     let slides;
@@ -371,54 +411,62 @@ exports.generatePresentation = async (req, res) => {
       return res.status(500).json({ message: "AI format hatası, lütfen tekrar deneyin." });
     }
 
-    // PPTX Oluşturma
+    // 2. PPTX Dosyasını İnşa Et
     const pres = new PptxGenJS();
     const t = getThemeColors(selectedTheme);
 
-    // Kapak Slaytı (Ekstra Özellik)
+    // Kapak Slaytı
     const coverSlide = pres.addSlide();
     coverSlide.background = { fill: t.bg };
-    coverSlide.addText(topic.toUpperCase(), { x: 0.5, y: 2.5, w: "90%", fontSize: 48, bold: true, align: "center", color: t.title });
-    coverSlide.addText("Hazırlayan: OdevAI Asistanı", { x: 0.5, y: 4, w: "90%", fontSize: 18, align: "center", color: t.text });
+    coverSlide.addText(topic.toUpperCase(), { 
+      x: 0.5, y: 2.5, w: "90%", fontSize: 48, bold: true, align: "center", color: t.title, fontFace: "Arial" 
+    });
+    coverSlide.addText("Hazırlayan: OdevAI Asistanı", { 
+      x: 0.5, y: 4, w: "90%", fontSize: 18, align: "center", color: t.text, fontFace: "Arial" 
+    });
 
-    // İçerik Slaytları
+    // İçerik Slaytları Döngüsü
     for (const [index, sl] of slides.entries()) {
       const slide = pres.addSlide();
-      
       slide.background = { fill: t.bg };
-      // Dekoratif Çubuk
-      slide.addShape(pres.ShapeType.rect, { x: 0.5, y: 0.8, w: 1.5, h: 0.1, fill: t.bar });
+      
+      // Dekoratif Çubuk (Tasarım detayı)
+      slide.addShape(pres.ShapeType.rect, { x: 0.5, y: 0.9, w: 1.5, h: 0.08, fill: t.bar });
 
       // Başlık
-      slide.addText(sl.title, { x: 0.5, y: 0.3, w: "90%", fontSize: 36, bold: true, color: t.title });
+      slide.addText(sl.title, { 
+        x: 0.5, y: 0.3, w: "90%", fontSize: 36, bold: true, color: t.title, fontFace: "Arial" 
+      });
 
-      // Görsel
+      // Görsel (Pollinations AI - Sağ Taraf)
       if (sl.imageKeyword) {
         const imgUrl = generateImageUrl(sl.imageKeyword);
-        // Görseli biraz daha estetik koyalım (Sağ taraf)
         slide.addImage({ path: imgUrl, x: 5.5, y: 1.5, w: 4.2, h: 3.5, sizing: { type: "contain", w: 4.2, h: 3.5 } });
       }
 
-      // Maddeler (Sol taraf)
+      // Maddeler (Sol Taraf)
       if (Array.isArray(sl.content)) {
         let yPos = 1.5;
         sl.content.forEach((bullet) => {
           slide.addText(`• ${bullet}`, { 
             x: 0.5, y: yPos, w: 4.8, h: 0.6, 
             fontSize: 20, color: t.text, align: "left",
-            paraSpaceAfter: 10 
+            paraSpaceAfter: 12, fontFace: "Arial"
           });
           yPos += 0.8;
         });
       }
       
-      // Footer / Sayfa No
-      slide.addText(`OdevAI | Slayt ${index + 1}`, { x: 0.5, y: 5.3, fontSize: 10, color: t.text, align: "left" });
+      // Footer / Sayfa Numarası
+      slide.addText(`OdevAI | Slayt ${index + 1}`, { 
+        x: 0.5, y: 5.3, fontSize: 10, color: t.text, align: "left", fontFace: "Arial" 
+      });
     }
 
-    req.user.credits -= COST;
-    await req.user.save();
+    // 3. Krediyi Düş
+    await handleCreditDeduction(req.user._id, COST);
 
+    // 4. Dosyayı Gönder
     const buffer = await pres.write("nodebuffer");
     res.setHeader("Content-Disposition", "attachment; filename=sunum.pptx");
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
