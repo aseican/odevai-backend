@@ -1,42 +1,28 @@
 const express = require("express");
 const router = express.Router();
+const { protect } = require("../middleware/authMiddleware");
+const upload = require("../middleware/upload"); // Multer upload middleware'in (Dosya yükleme için)
 
-// --- MIDDLEWARE ---
-// Doğru dosya isimlerini kullanıyoruz
-const { protect } = require("../middleware/authMiddleware"); 
-const upload = require("../middleware/upload"); // Merkezi upload ayarı
-
-// --- CONTROLLER ---
-const {
-  aiHomework,
-  aiPdfSummary,
-  aiPdfQuestions,
-  aiPdfExtract,
-  aiPdfPresentationToText,
-  aiCreatePresentation
+// Controller'dan YENİ ve GÜÇLENDİRİLMİŞ fonksiyon isimlerini çekiyoruz
+const { 
+  generateHomework, 
+  generatePdfSummary, 
+  generatePdfQuestions, 
+  generatePdfToPresentationText, 
+  generatePresentation 
 } = require("../controllers/aiController");
 
-/* -------------------- AI ROUTES -------------------- */
+// --- ROTALAR ---
 
-// 1) Ödev Oluşturma (Sadece Metin/JSON, dosya yok)
-router.post("/homework", protect, aiHomework);
+// 1. Ödev Oluşturma (Master Promptlu)
+router.post("/homework", protect, generateHomework);
 
-// 2) PDF Özetleme (Dosya yükleme var)
-router.post("/pdf-summary", protect, upload.single("file"), aiPdfSummary);
+// 2. PDF İşlemleri (Dosya yüklemesi olduğu için 'upload.single' kullanıyoruz)
+router.post("/pdf-summary", protect, upload.single("file"), generatePdfSummary);
+router.post("/pdf-questions", protect, upload.single("file"), generatePdfQuestions);
+router.post("/pdf-to-text", protect, upload.single("file"), generatePdfToPresentationText); // TED Talk tarzı metin için
 
-// 3) PDF → Soru Üretme (Dosya yükleme var)
-router.post("/pdf-questions", protect, upload.single("file"), aiPdfQuestions);
-
-// 4) PDF → Metin Çıkarma (Dosya yükleme var)
-router.post("/pdf-extract", protect, upload.single("file"), aiPdfExtract);
-
-// 5) PDF Sunumdan Metin Çıkarma (Dosya yükleme var)
-// Frontend'de genelde bu isimle çağrılır, tutarlı olsun diye düzelttim
-router.post("/presentation-to-text", protect, upload.single("file"), aiPdfPresentationToText);
-
-// 6) Sunum Oluşturucu (Sıfırdan konu ile)
-// DİKKAT: Burada dosya yüklenmiyor, sadece konu (topic) gönderiliyor.
-// O yüzden upload.single("file") middleware'ini kaldırdım.
-router.post("/create-presentation", protect, aiCreatePresentation);
+// 3. Sunum Oluşturma (PPTX İndirme)
+router.post("/create-presentation", protect, generatePresentation);
 
 module.exports = router;
