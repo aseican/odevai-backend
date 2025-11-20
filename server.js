@@ -7,16 +7,17 @@ const path = require("path");
 // --- ROTA DOSYALARINI İÇERİ AL ---
 const authRoutes = require("./routes/authRoutes");
 const aiRoutes = require("./routes/aiRoutes");
-const pdfRoutes = require("./routes/pdfRoutes"); // Varsa
+// const pdfRoutes = require("./routes/pdfRoutes"); // Varsa açarsın
 const adminRoutes = require("./routes/adminRoutes");
-const paymentRoutes = require("./routes/paymentRoutes"); // Ödeme rotası
+const paymentRoutes = require("./routes/paymentRoutes");
+const shopierRoutes = require("./routes/shopierRoutes"); // Shopier rotası eklendi
 
 const app = express();
 
 // --- VERİTABANI BAĞLANTISI ---
 connectDB();
 
-// --- CORS AYARLARI (Gelişmiş Güvenlik) ---
+// --- CORS AYARLARI ---
 const allowedOrigins = [
   "https://www.odevai.pro",
   "https://odevai.pro",
@@ -40,41 +41,40 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(
-  cors({
+app.use(cors({
     origin: (origin, callback) => {
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
-        console.log("🚫 CORS Engellendi:", origin);
         callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
-  })
-);
+}));
 
-// Dosya boyutu limiti (PDF yüklemeleri için)
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // --- ROTALARI AKTİF ET ---
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
-app.use("/api/pdf", pdfRoutes); // Eğer pdfRoutes dosyan varsa kullan
+// app.use("/api/pdf", pdfRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/shopier", shopierRoutes); // Shopier rotası aktif
 
-// Uploads klasörünü dışarı aç
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Sağlık Kontrolü
-app.get("/", (req, res) => res.send("Backend (API) Çalışıyor! 🚀"));
+app.get("/", (req, res) => res.send("Backend Çalışıyor! 🚀"));
 
-// --- PORT AYARI (KRİTİK DÜZELTME) ---
-// Port 80 dolu olduğu için 5000 kullanıyoruz!
-const PORT =  5000;
+// --- PORT AYARI ---
+const PORT = 5000;
 
-app.listen(PORT, "0.0.0.0", () => 
+// Sunucuyu başlat ve zaman aşımını artır
+const server = app.listen(PORT, "0.0.0.0", () => 
   console.log(`🔥 Backend ${PORT} portunda çalışıyor`)
 );
+
+// Zaman aşımı süresini 5 dakikaya (300.000 ms) çıkarıyoruz
+// Sunum oluşturma gibi uzun işlemler için bu gereklidir.
+server.setTimeout(300000);
