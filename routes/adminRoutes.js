@@ -14,10 +14,10 @@ router.use(protect, admin);
 
 router.get("/stats", getStats);         // İstatistikler
 router.get("/users", getAllUsers);      // Kullanıcı listesi
-router.put("/users/:id", updateUser);   // Kullanıcı düzenle (Kredi/Ban)
+router.put("/users/:id", updateUser);   // Kullanıcı düzenle
 
-// Senin özel ayarların
-router.post("/update-prompt", updatePrompt);
-router.post("/update-features", updateFeatures);
+// Ayar güncellemeleri (PUT yaptık)
+router.put("/update-prompt", updatePrompt);
+router.put("/update-features", updateFeatures);
 
 module.exports = router;

@@ -6,16 +6,16 @@ const path = require("path");
 
 // --- ROTA DOSYALARINI İÇERİ AL ---
 const authRoutes = require("./routes/authRoutes");
-const aiRoutes = require("./routes/aiRoutes");
-const pdfRoutes = require("./routes/pdfRoutes");
-const adminRoutes = require("./routes/adminRoutes");
+const aiRoutes = require("./routes/aiRoutes");   // Dosya varsa
+const pdfRoutes = require("./routes/pdfRoutes"); // Dosya varsa
+const adminRoutes = require("./routes/adminRoutes"); // AZ ÖNCE YAPTIĞIMIZ
 
 const app = express();
 
 // --- VERİTABANI BAĞLANTISI ---
 connectDB();
 
-// --- CORS AYARLARI (Cloudflare uyumlu, Preflight tam çalışır) ---
+// --- CORS AYARLARI (Gelişmiş Güvenlik) ---
 const allowedOrigins = [
   "https://www.odevai.pro",
   "https://odevai.pro",
@@ -24,22 +24,22 @@ const allowedOrigins = [
   "http://localhost:3000",
 ];
 
-// Preflight (OPTIONS) – TARAYICININ ZORUNLU İSTEDİĞİ CEVAP
+// 1. Manuel Preflight ve Header Ayarı (Garanti Çözüm)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
   if (allowedOrigins.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header(
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
     "Access-Control-Allow-Headers",
-    "Authorization, Content-Type, Accept"
+    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
   );
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
 
-  // Preflight isteklerini hemen yanıtlıyoruz
+  // Preflight (OPTIONS) isteği gelirse hemen OK dön
   if (req.method === "OPTIONS") {
     return res.sendStatus(200);
   }
@@ -47,10 +47,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Ana CORS middleware
+// 2. Cors Middleware (Ekstra Güvenlik)
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Postman veya Server-to-Server istekleri için (!origin) izni
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -62,7 +63,7 @@ app.use(
   })
 );
 
-// 50 MB'a kadar dosya kabul et
+// Dosya boyutu limiti (PDF yüklemeleri için)
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
@@ -70,16 +71,17 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/pdf", pdfRoutes);
-app.use("/api/admin", adminRoutes);
+app.use("/api/admin", adminRoutes); // Admin paneli bağlandı ✅
 
-// Uploads klasörünü dışarı aç
+// Uploads klasörünü dışarı aç (Resim/PDF erişimi için)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Sağlık Kontrolü
-app.get("/", (req, res) => res.send("Backend Çalışıyor!"));
+app.get("/", (req, res) => res.send("Backend (API) Çalışıyor! 🚀"));
 
 // --- PORT AYARI ---
-const PORT = process.env.PORT || 80;
+// DİKKAT: Port 80 Nginx tarafından kullanıldığı için burada 5000 kullanıyoruz.
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", () => 
   console.log(`🔥 Backend ${PORT} portunda çalışıyor`)

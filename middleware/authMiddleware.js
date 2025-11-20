@@ -5,39 +5,44 @@ const User = require("../models/User");
 const protect = async (req, res, next) => {
   let token;
 
-  // Header'da "Bearer asd876asd..." şeklinde token var mı bakıyoruz
+  // Header'da "Bearer ..." var mı?
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer")
   ) {
     try {
-      // "Bearer" kelimesini at, sadece şifreli kodu al
+      // Token'ı al
       token = req.headers.authorization.split(" ")[1];
 
-      // Token'i çöz (İçindeki kullanıcı ID'sini bul)
+      // Token'ı çöz
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Veritabanından o kullanıcıyı bul ve isteğe ekle (Şifresi hariç)
+      // Kullanıcıyı bul
       req.user = await User.findById(decoded.id).select("-password");
 
-      next(); // Sorun yok, geçebilirsin
+      // EK GÜVENLİK: Token var ama kullanıcı silinmişse?
+      if (!req.user) {
+        return res.status(401).json({ message: "Kullanıcı bulunamadı, oturum geçersiz." });
+      }
+
+      return next(); // Sorun yok, devam et
     } catch (error) {
       console.error(error);
-      res.status(401).json({ message: "Yetkisiz işlem, token geçersiz." });
+      return res.status(401).json({ message: "Yetkisiz işlem, token geçersiz." });
     }
   }
 
   if (!token) {
-    res.status(401).json({ message: "Giriş yapmanız gerekiyor." });
+    return res.status(401).json({ message: "Giriş yapmanız gerekiyor." });
   }
 };
 
 // 2. ADMIN KONTROLÜ (Sadece Admin girebilir)
 const admin = (req, res, next) => {
   if (req.user && req.user.role === "admin") {
-    next(); // Adminsen geç
+    return next(); // Adminsen geç
   } else {
-    res.status(403).json({ message: "Bu işlem için Admin yetkisi gerekli." });
+    return res.status(403).json({ message: "Bu işlem için Admin yetkisi gerekli." });
   }
 };
 
