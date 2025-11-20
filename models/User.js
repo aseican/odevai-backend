@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema(
     // --- KREDİ AYARI ---
     credits: { 
       type: Number, 
-      default: 20
+      default: 10
     },
     
     // --- ROL ve DURUM ---

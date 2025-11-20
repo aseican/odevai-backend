@@ -26,7 +26,7 @@ exports.aiHomework = async (req, res) => {
     const { topic, level, length, style } = req.body;
     
     // Kredi düş
-    const user = await consumeCredits(req.user.id, 1);
+    const user = await consumeCredits(req.user.id, 4);
 
     const prompt = `
 GÖREV: Aşağıdaki kriterlere göre profesyonel, akademik ve özgün bir ödev hazırla.
@@ -64,7 +64,7 @@ exports.aiPdfSummary = async (req, res) => {
 
     if (!text) return res.status(400).json({ message: "PDF içeriği okunamadı veya boş!" });
 
-    const user = await consumeCredits(req.user.id, 1);
+    const user = await consumeCredits(req.user.id, 4);
 
     const prompt = `
 Aşağıdaki metni analiz et ve en önemli noktaları madde madde özetle.
@@ -92,7 +92,7 @@ exports.aiPdfQuestions = async (req, res) => {
     const data = await pdfParse(req.file.buffer);
     const text = data.text?.trim().slice(0, 15000);
 
-    const user = await consumeCredits(req.user.id, 1);
+    const user = await consumeCredits(req.user.id, 4);
 
     const prompt = `
 Aşağıdaki metne dayanarak öğrencilerin bilgisini ölçecek 5 adet zorlayıcı test sorusu (cevap anahtarıyla birlikte) veya 5 adet klasik soru hazırla.
@@ -139,7 +139,7 @@ exports.aiPdfPresentationToText = async (req, res) => {
     const data = await pdfParse(req.file.buffer);
     const text = data.text?.trim().slice(0, 10000);
 
-    const user = await consumeCredits(req.user.id, 1);
+    const user = await consumeCredits(req.user.id, 4);
 
     const prompt = `
 Bu bir sunum dosyasının içeriği. Bunu bir konuşmacının okuyacağı akıcı bir sunum metnine çevir.
@@ -177,7 +177,7 @@ exports.aiCreatePresentation = async (req, res) => {
     if (!topic) return res.status(400).json({ message: "Konu gerekli" });
 
     // Sunum pahalı bir işlem, 3 kredi düşüyoruz
-    const user = await consumeCredits(req.user.id, 3);
+    const user = await consumeCredits(req.user.id, 8);
 
     const systemPrompt = `
 Sen profesyonel bir sunum tasarımcısısın.
