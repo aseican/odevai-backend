@@ -1,11 +1,12 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto"); // EKLENDİ: Token üretimi için gerekli
 
 const userSchema = new mongoose.Schema(
   {
     name: { 
       type: String, 
-      required: true, // İsimsiz kayıt olmasın
+      required: true,
       trim: true 
     },
     email: { 
@@ -13,7 +14,7 @@ const userSchema = new mongoose.Schema(
       required: true, 
       unique: true, 
       trim: true,
-      lowercase: true // E-postaları küçük harfe çevirir (Ahmet@... ile ahmet@... aynı sayılır)
+      lowercase: true
     },
     password: { 
       type: String, 
@@ -23,13 +24,13 @@ const userSchema = new mongoose.Schema(
     // --- KREDİ AYARI ---
     credits: { 
       type: Number, 
-      default: 20 // İSTEĞİN: Her yeni üyeye 20 kredi
+      default: 20
     },
     
     // --- ROL ve DURUM ---
     role: { 
       type: String, 
-      enum: ["user", "admin"], // Sadece bu iki değer girilebilir, güvenlik için.
+      enum: ["user", "admin"],
       default: "user" 
     },
     banned: { 
@@ -38,7 +39,6 @@ const userSchema = new mongoose.Schema(
     },
 
     // --- ADMIN PANEL / UYGULAMA AYARLARI ---
-    // (Senin frontend yapınla tam uyumlu kısımlar)
     settings: {
       homework: { type: Boolean, default: true },
       pdfTools: { type: Boolean, default: true },
@@ -50,11 +50,13 @@ const userSchema = new mongoose.Schema(
       pdfSummary: { type: String, default: "" },
       pdfQuestions: { type: String, default: "" },
       pdfPresentation: { type: String, default: "" }
-    }
+    },
+
+    // --- EKLENDİ: ŞİFRE SIFIRLAMA ALANLARI ---
+    resetPasswordToken: String,
+    resetPasswordExpire: Date
   },
   {
-    // Bu ayar otomatik olarak 'createdAt' (Kayıt Tarihi) ve 'updatedAt' ekler.
-    // Admin panelinde "En son kayıt olanlar" listesi yapman için ŞARTTIR.
     timestamps: true 
   }
 );
@@ -70,6 +72,23 @@ userSchema.pre("save", async function (next) {
 // Şifre kontrolü (Aynen korundu)
 userSchema.methods.matchPassword = async function (pw) {
   return await bcrypt.compare(pw, this.password);
+};
+
+// --- EKLENDİ: Şifre Sıfırlama Token Oluşturucu ---
+userSchema.methods.getResetPasswordToken = function () {
+  // 1. Rastgele bir token oluştur
+  const resetToken = crypto.randomBytes(20).toString('hex');
+
+  // 2. Token'ı hash'le ve veritabanına kaydet (Güvenlik için)
+  this.resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+
+  // 3. Token süresini 10 dakika olarak ayarla
+  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+  return resetToken;
 };
 
 module.exports = mongoose.model("User", userSchema);

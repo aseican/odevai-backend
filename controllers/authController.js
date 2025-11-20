@@ -1,5 +1,7 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto"); // EKLENDİ: Token işleme için
+const sendEmail = require("../utils/sendEmail"); // EKLENDİ: Mail gönderme için
 
 // Token Üretici
 const generateToken = (id) => {
@@ -85,17 +87,14 @@ exports.me = async (req, res) => {
   }
 };
 
-// --- YENİ EKLENEN: PROFİL GÜNCELLEME ---
+// --- PROFİL GÜNCELLEME ---
 exports.updateDetails = async (req, res) => {
   try {
-    // req.user, authMiddleware'den geliyor (Giriş yapmış kişi)
     const user = await User.findById(req.user._id);
 
     if (user) {
-      // İsim güncelle
       user.name = req.body.name || user.name;
       
-      // Email güncelle (Eğer değiştiyse ve başkası kullanmıyorsa)
       if (req.body.email && req.body.email !== user.email) {
         const emailExists = await User.findOne({ email: req.body.email });
         if (emailExists) {
@@ -104,15 +103,12 @@ exports.updateDetails = async (req, res) => {
         user.email = req.body.email;
       }
 
-      // Şifre güncelle (Eğer boş değilse)
       if (req.body.password) {
         user.password = req.body.password; 
-        // Not: User modelindeki 'pre save' hook'u şifreyi otomatik hash'leyecek.
       }
 
       const updatedUser = await user.save();
 
-      // Güncel bilgileri ve yeni token'ı döndür
       res.json({
         _id: updatedUser._id,
         name: updatedUser.name,
@@ -127,5 +123,85 @@ exports.updateDetails = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Güncelleme başarısız oldu" });
+  }
+};
+
+// --- YENİ EKLENEN: ŞİFREMİ UNUTTUM (Mail Gönderir) ---
+exports.forgotPassword = async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.body.email });
+
+    if (!user) {
+      return res.status(404).json({ message: 'Bu email ile kayıtlı kullanıcı bulunamadı.' });
+    }
+
+    // Token oluştur (User modelindeki metodu kullanır)
+    const resetToken = user.getResetPasswordToken();
+    
+    // Token'ı veritabanına kaydet
+    await user.save({ validateBeforeSave: false });
+
+    // Frontend Sıfırlama Linki
+    const resetUrl = `https://odevai.pro/reset-password/${resetToken}`;
+
+    const message = `
+      <h2>Şifre Sıfırlama İsteği</h2>
+      <p>Şifrenizi sıfırlamak için aşağıdaki linke tıklayın:</p>
+      <a href="${resetUrl}" clicktracking=off>${resetUrl}</a>
+      <p>Bu işlemi siz yapmadıysanız bu maili dikkate almayın.</p>
+    `;
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Odevai - Şifre Sıfırlama',
+        message,
+      });
+
+      res.status(200).json({ success: true, message: 'Sıfırlama maili gönderildi.' });
+    } catch (err) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save({ validateBeforeSave: false });
+      console.error("Mail hatası:", err);
+      return res.status(500).json({ message: 'Email gönderilemedi.' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Sunucu hatası.' });
+  }
+};
+
+// --- YENİ EKLENEN: ŞİFRE SIFIRLAMA (Yeni Şifreyi Kaydeder) ---
+exports.resetPassword = async (req, res) => {
+  try {
+    // URL'den gelen token'ı hashleyip veritabanındakiyle eşleştiriyoruz
+    const resetPasswordToken = crypto
+      .createHash('sha256')
+      .update(req.params.resetToken)
+      .digest('hex');
+
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }, // Süresi dolmamış olmalı
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Geçersiz veya süresi dolmuş token.' });
+    }
+
+    // Yeni şifreyi ayarla
+    user.password = req.body.password;
+    
+    // Tokenları temizle (Artık ihtiyaç yok)
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'Şifre başarıyla güncellendi. Giriş yapabilirsiniz.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Sunucu hatası.' });
   }
 };
