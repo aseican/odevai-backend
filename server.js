@@ -73,7 +73,7 @@ app.get("/", (req, res) => res.send("Backend (API) Çalışıyor! 🚀"));
 
 // --- PORT AYARI (KRİTİK DÜZELTME) ---
 // Port 80 dolu olduğu için 5000 kullanıyoruz!
-const PORT = process.env.PORT || 5000;
+const PORT =  5000;
 
 app.listen(PORT, "0.0.0.0", () => 
   console.log(`🔥 Backend ${PORT} portunda çalışıyor`)
