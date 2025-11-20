@@ -1,29 +1,54 @@
 const pdfParse = require("pdf-parse");
 const { callOpenAI } = require("../services/aiService");
 const { consumeCredits } = require("../utils/credits");
+const PptxGenJS = require("pptxgenjs");
+
+// --- YARDIMCI FONKSİYONLAR ---
+
+// Görsel Oluşturucu (Ücretsiz AI Image Generator kullanır)
+// ChatGPT URL veremez, halüsinasyon görür. Bu yöntem gerçek resim üretir.
+function generateImageUrl(keyword) {
+  const encodedKey = encodeURIComponent(keyword);
+  // Pollinations.ai ücretsiz ve key gerektirmeyen harika bir servistir
+  return `https://image.pollinations.ai/prompt/${encodedKey}?width=1024&height=768&nologo=true`;
+}
+
+// JSON Temizleyici (AI bazen ```json ... ``` şeklinde verir, onu temizleriz)
+function cleanJSON(text) {
+  return text.replace(/```json/g, "").replace(/```/g, "").trim();
+}
 
 /* ---------------------------------- */
-/* 1) ÖDEV OLUŞTURMA */
+/* 1) ÖDEV OLUŞTURMA (GÜÇLENDİRİLMİŞ) */
 /* ---------------------------------- */
 exports.aiHomework = async (req, res) => {
   try {
+    const { topic, level, length, style } = req.body;
+    
+    // Kredi düş
     const user = await consumeCredits(req.user.id, 1);
 
     const prompt = `
-Konu: ${req.body.topic}
-Seviye: ${req.body.level}
-Uzunluk: ${req.body.length}
-Üslup: ${req.body.style}
+GÖREV: Aşağıdaki kriterlere göre profesyonel, akademik ve özgün bir ödev hazırla.
 
-Bu bilgilere göre kaliteli ve tamamlanmış bir ödev yaz.
-Cevap ASLA yarım kalmasın.
+KONU: ${topic}
+SEVİYE: ${level} (Örn: Lise, Üniversite)
+UZUNLUK: ${length}
+ÜSLUP: ${style}
+
+KURALLAR:
+1. Giriş, Gelişme ve Sonuç bölümleri net olsun.
+2. Konuyu derinlemesine ele al.
+3. Asla yarım bırakma, cümleyi tamamla.
+4. Markdown formatında yaz (Başlıklar # ile, kalın yazılar ** ile).
 `;
 
     const answer = await callOpenAI(prompt);
     res.json({ content: answer, credits: user.credits });
 
   } catch (e) {
-    res.status(400).json({ message: e.message });
+    console.error("Ödev Hatası:", e);
+    res.status(e.status || 500).json({ message: e.message || "Ödev oluşturulamadı" });
   }
 };
 
@@ -35,15 +60,17 @@ exports.aiPdfSummary = async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
 
     const data = await pdfParse(req.file.buffer);
-    const text = data.text?.trim();
+    const text = data.text?.trim().slice(0, 15000); // Token limiti aşmasın diye ilk 15bin karakter
 
-    if (!text) return res.status(400).json({ message: "PDF boş!" });
+    if (!text) return res.status(400).json({ message: "PDF içeriği okunamadı veya boş!" });
 
     const user = await consumeCredits(req.user.id, 1);
 
     const prompt = `
-PDF METNİNİ KALİTELİ BİR ŞEKİLDE ÖZETLE:
+Aşağıdaki metni analiz et ve en önemli noktaları madde madde özetle.
+Anlaşılır ve akıcı bir Türkçe kullan.
 
+METİN:
 ${text}
 `;
 
@@ -63,15 +90,14 @@ exports.aiPdfQuestions = async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
 
     const data = await pdfParse(req.file.buffer);
-    const text = data.text?.trim();
-
-    if (!text) return res.status(400).json({ message: "PDF boş!" });
+    const text = data.text?.trim().slice(0, 15000);
 
     const user = await consumeCredits(req.user.id, 1);
 
     const prompt = `
-PDF METNİNE GÖRE SORULAR ÜRET:
+Aşağıdaki metne dayanarak öğrencilerin bilgisini ölçecek 5 adet zorlayıcı test sorusu (cevap anahtarıyla birlikte) veya 5 adet klasik soru hazırla.
 
+METİN:
 ${text}
 `;
 
@@ -84,7 +110,7 @@ ${text}
 };
 
 /* ---------------------------------- */
-/* 4) PDF RAW TEXT */
+/* 4) PDF RAW TEXT (Kredisiz olabilir istersen) */
 /* ---------------------------------- */
 exports.aiPdfExtract = async (req, res) => {
   try {
@@ -93,9 +119,10 @@ exports.aiPdfExtract = async (req, res) => {
     const data = await pdfParse(req.file.buffer);
     const text = data.text?.trim();
 
-    const user = await consumeCredits(req.user.id, 1);
+    // Sadece metin çıkarıyor, istersen kredi düşme satırını silebilirsin.
+    // const user = await consumeCredits(req.user.id, 1);
 
-    res.json({ content: text, credits: user.credits });
+    res.json({ content: text });
 
   } catch (e) {
     res.status(500).json({ message: "PDF metin çıkarma hatası", error: e.message });
@@ -110,11 +137,17 @@ exports.aiPdfPresentationToText = async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "PDF yok" });
 
     const data = await pdfParse(req.file.buffer);
-    const text = data.text?.trim();
+    const text = data.text?.trim().slice(0, 10000);
 
     const user = await consumeCredits(req.user.id, 1);
 
-    const prompt = `Bu sunumu temizle ve düzenle (ÖZET YAPMA):\n${text}`;
+    const prompt = `
+Bu bir sunum dosyasının içeriği. Bunu bir konuşmacının okuyacağı akıcı bir sunum metnine çevir.
+Slayt slayt ayırmak yerine bütünlüklü bir metin olsun.
+
+İÇERİK:
+${text}`;
+    
     const answer = await callOpenAI(prompt);
 
     res.json({ content: answer, credits: user.credits });
@@ -124,133 +157,114 @@ exports.aiPdfPresentationToText = async (req, res) => {
   }
 };
 
-
-
 /* ---------------------------------- */
-/* 6) PROFESYONEL TEMALI + GÖRSELLİ SUNUM */
+/* 6) PROFESYONEL SUNUM OLUŞTURUCU (PPTX) */
 /* ---------------------------------- */
-
-const PptxGenJS = require("pptxgenjs");
-
-async function findImage(keyword) {
-  const prompt = `"${keyword}" konusuna uygun bir telifsiz görsel URL'si ver. SADECE URL ver.`;
-  const url = await callOpenAI(prompt);
-  return url.trim();
-}
-
-function theme(themeName) {
+function getThemeColors(themeName) {
   const themes = {
-    modern: { bg: "E6F0FF", title: "003366", text: "333333" },
-    dark: { bg: "1E1E1E", title: "FFFFFF", text: "DDDDDD" },
-    premium: { bg: "0A0A0A", title: "FFD700", text: "E0E0E0" },
-    white: { bg: "FFFFFF", title: "000000", text: "333333" }
+    modern: { bg: "F0F4F8", title: "102A43", text: "334E68", bar: "334E68" },
+    dark:   { bg: "102A43", title: "F0F4F8", text: "D9E2EC", bar: "486581" },
+    nature: { bg: "F0FFF4", title: "164E32", text: "234E52", bar: "38A169" },
+    premium:{ bg: "000000", title: "FFD700", text: "E0E0E0", bar: "FFD700" }
   };
-  return themes[themeName] || themes.white;
+  return themes[themeName] || themes.modern;
 }
 
 exports.aiCreatePresentation = async (req, res) => {
   try {
-    const { topic, slideCount, style, theme: selectedTheme } = req.body;
+    const { topic, slideCount, theme: selectedTheme } = req.body;
 
-    if (!topic) {
-      return res.status(400).json({ message: "Konu gerekli" });
-    }
+    if (!topic) return res.status(400).json({ message: "Konu gerekli" });
 
-    await consumeCredits(req.user.id, 3);
+    // Sunum pahalı bir işlem, 3 kredi düşüyoruz
+    const user = await consumeCredits(req.user.id, 3);
 
-    const prompt = [
-      "Aşağıdaki bilgilerle bir sunum oluştur:",
-      `Konu: ${topic}`,
-      `Slayt Sayısı: ${slideCount}`,
-      "",
-      "SADECE geçerli JSON üret:",
-      "[",
-      "  {",
-      '    "title": "Slayt başlığı",',
-      '    "bullets": ["madde1","madde2","madde3"],',
-      '    "imageTopic": "görsel anahtar kelime"',
-      "  }",
-      "]",
-      "",
-      "Kurallar:",
-      "- Sadece JSON ver",
-      "- Kod bloğu yok",
-      "- Açıklama yok",
-      "- Her slaytta 3–5 madde olsun"
-    ].join("\n");
+    const systemPrompt = `
+Sen profesyonel bir sunum tasarımcısısın.
+Verilen konuda ${slideCount} slaytlık bir sunum planı çıkar.
+Çıktı SADECE ve SADECE geçerli bir JSON formatında olmalı.
+Dizi (Array) formatında döndür.
 
-    const raw = await callOpenAI(prompt);
+JSON FORMATI ŞÖYLE OLMALI:
+[
+  {
+    "title": "Slayt Başlığı",
+    "content": ["Madde 1", "Madde 2", "Madde 3"],
+    "imageKeyword": "ingilizce_gorsel_anahtar_kelimesi" 
+  }
+]
 
+NOT: "imageKeyword" alanı için DALL-E veya Unsplash'te aratılabilecek İngilizce kısa bir kelime yaz.
+`;
+
+    const rawResponse = await callOpenAI(`KONU: ${topic}`, systemPrompt);
+    
+    // JSON Temizliği
+    const jsonString = cleanJSON(rawResponse);
     let slides;
     try {
-      slides = JSON.parse(raw.trim());
+      slides = JSON.parse(jsonString);
     } catch (err) {
-      return res.status(500).json({
-        message: "JSON hatalı",
-        raw
-      });
+      console.error("JSON Parse Hatası:", rawResponse);
+      return res.status(500).json({ message: "AI geçersiz format üretti, lütfen tekrar deneyin." });
     }
 
+    // PPTX Oluşturma
     const pres = new PptxGenJS();
-    const t = theme(selectedTheme);
+    const t = getThemeColors(selectedTheme);
 
-    for (const sl of slides) {
+    // Her slaytı döngüye al
+    for (const [index, sl] of slides.entries()) {
       const slide = pres.addSlide();
-
+      
+      // Arkaplan
       slide.background = { fill: t.bg };
 
-      const imgUrl = await findImage(sl.imageTopic || sl.title);
+      // Süsleme (Üstte çizgi)
+      slide.addShape(pres.ShapeType.rect, { x: 0, y: 0, w: "100%", h: 0.2, fill: t.bar });
 
-      slide.addText(sl.title || "Başlık", {
-        x: 0.5,
-        y: 0.4,
-        fontSize: 34,
-        bold: true,
-        color: t.title,
+      // Başlık
+      slide.addText(sl.title, {
+        x: 0.5, y: 0.5, w: "90%", fontSize: 32,
+        bold: true, color: t.title, align: "left"
       });
 
-      if (Array.isArray(sl.bullets)) {
-        let y = 1.5;
-
-        for (const bullet of sl.bullets) {
-          slide.addText(`• ${bullet}`, {
-            x: 0.7,
-            y,
-            w: 6.5,
-            h: 0.5,
-            fontSize: 18,
-            color: t.text
-          });
-          y += 0.45;
+      // Görsel (Pollinations AI)
+      if (sl.imageKeyword) {
+        const imgUrl = generateImageUrl(sl.imageKeyword);
+        try {
+            // Görseli sağa koy
+            slide.addImage({ path: imgUrl, x: 6.5, y: 1.5, w: 3.2, h: 3.2 });
+        } catch (e) {
+            console.log("Resim eklenemedi:", e.message);
         }
       }
 
-      try {
-        slide.addImage({
-          url: imgUrl,
-          x: 8.0,
-          y: 1.5,
-          w: 3.0,
-          h: 2.3
+      // Maddeler (Sol taraf)
+      if (Array.isArray(sl.content)) {
+        let yPos = 1.5;
+        sl.content.forEach((bullet) => {
+          slide.addText(`• ${bullet}`, {
+            x: 0.5, y: yPos, w: 5.5, h: 0.5,
+            fontSize: 18, color: t.text, align: "left"
+          });
+          yPos += 0.6;
         });
-      } catch {}
+      }
+      
+      // Sayfa numarası
+      slide.addText(`${index + 1}`, { x: 9.5, y: 5.3, fontSize: 12, color: t.text });
     }
 
+    // Sunumu Buffer olarak oluştur ve gönder
     const buffer = await pres.write("nodebuffer");
 
     res.setHeader("Content-Disposition", "attachment; filename=sunum.pptx");
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    );
-
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.presentationml.presentation");
     res.send(buffer);
 
   } catch (e) {
-    res.status(500).json({
-      message: "Sunum oluşturma hatası",
-      error: e.message
-    });
+    console.error("Sunum Hatası:", e);
+    res.status(500).json({ message: e.message });
   }
 };
-

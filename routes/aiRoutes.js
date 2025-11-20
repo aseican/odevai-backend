@@ -1,12 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
-const upload = multer();
 
-// Middleware
-const { protect } = require("../middleware/auth");
+// --- MIDDLEWARE ---
+// Doğru dosya isimlerini kullanıyoruz
+const { protect } = require("../middleware/authMiddleware"); 
+const upload = require("../middleware/upload"); // Merkezi upload ayarı
 
-// Controller
+// --- CONTROLLER ---
 const {
   aiHomework,
   aiPdfSummary,
@@ -18,24 +18,25 @@ const {
 
 /* -------------------- AI ROUTES -------------------- */
 
-// 1) Ödev Oluşturma
+// 1) Ödev Oluşturma (Sadece Metin/JSON, dosya yok)
 router.post("/homework", protect, aiHomework);
 
-// 2) PDF Özetleme
+// 2) PDF Özetleme (Dosya yükleme var)
 router.post("/pdf-summary", protect, upload.single("file"), aiPdfSummary);
 
-// 3) PDF → Soru Üretme
+// 3) PDF → Soru Üretme (Dosya yükleme var)
 router.post("/pdf-questions", protect, upload.single("file"), aiPdfQuestions);
 
-// 4) PDF → Metin Çıkarma
+// 4) PDF → Metin Çıkarma (Dosya yükleme var)
 router.post("/pdf-extract", protect, upload.single("file"), aiPdfExtract);
 
-// 5) PDF → Sunumdan Metin Çıkarma
-router.post("/pdf-presentation-to-text", protect, upload.single("file"), aiPdfPresentationToText);
+// 5) PDF Sunumdan Metin Çıkarma (Dosya yükleme var)
+// Frontend'de genelde bu isimle çağrılır, tutarlı olsun diye düzelttim
+router.post("/presentation-to-text", protect, upload.single("file"), aiPdfPresentationToText);
 
-// 6) Sunum Oluşturucu
-router.post("/create-presentation", protect, upload.single("file"), aiCreatePresentation);
+// 6) Sunum Oluşturucu (Sıfırdan konu ile)
+// DİKKAT: Burada dosya yüklenmiyor, sadece konu (topic) gönderiliyor.
+// O yüzden upload.single("file") middleware'ini kaldırdım.
 router.post("/create-presentation", protect, aiCreatePresentation);
-
 
 module.exports = router;
