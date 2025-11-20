@@ -1,15 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const { register, login, me } = require("../controllers/authController");
+const { register, login, me, updateDetails } = require("../controllers/authController");
 const { protect } = require("../middleware/authMiddleware");
 
-// Bu adrese POST isteği gelirse 'register' fonksiyonunu çalıştır
+// Herkes erişebilir
 router.post("/register", register);
-
-// Bu adrese POST isteği gelirse 'login' fonksiyonunu çalıştır
 router.post("/login", login);
 
-// Bu adrese GET isteği gelirse ÖNCE 'protect' (token kontrolü) yap, sonra 'me' çalıştır
+// Sadece giriş yapanlar erişebilir (protect)
 router.get("/me", protect, me);
+router.put("/updateDetails", protect, updateDetails); // <-- YENİ EKLENEN SATIR
 
 module.exports = router;

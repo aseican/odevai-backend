@@ -1,10 +1,10 @@
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 
-// Token Üretici (Kendi içinde olsun, dışarıya bağımlı kalmasın)
+// Token Üretici
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: "30d", // Oturum 30 gün açık kalsın
+    expiresIn: "30d",
   });
 };
 
@@ -13,32 +13,24 @@ exports.register = async (req, res) => {
   const { name, email, password } = req.body;
 
   try {
-    // 1. Basit doğrulama
     if (!name || !email || !password) {
       return res.status(400).json({ message: "Lütfen tüm alanları doldurun" });
     }
 
-    // 2. Kullanıcı zaten var mı?
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ message: "Bu email zaten kayıtlı" });
     }
 
-    // 3. Kullanıcıyı oluştur (Modeldeki default:20 kredi otomatik işleyecek)
-    const user = await User.create({
-      name,
-      email,
-      password,
-    });
+    const user = await User.create({ name, email, password });
 
-    // 4. Başarılı yanıt dön
     if (user) {
       res.status(201).json({
         _id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role,      // Frontend bilsin (admin mi user mı?)
-        credits: user.credits,// Frontend bilsin (kaç parası var?)
+        role: user.role,
+        credits: user.credits,
         token: generateToken(user._id),
       });
     } else {
@@ -56,10 +48,7 @@ exports.login = async (req, res) => {
   try {
     const user = await User.findOne({ email });
 
-    // Kullanıcı varsa ve şifre doğruysa
     if (user && (await user.matchPassword(password))) {
-      
-      // YENİ: Ban kontrolü
       if (user.banned) {
         return res.status(403).json({ message: "Hesabınız erişime engellenmiştir." });
       }
@@ -69,7 +58,7 @@ exports.login = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        credits: user.credits, // Güncel krediyi gönderiyoruz
+        credits: user.credits,
         token: generateToken(user._id),
       });
     } else {
@@ -80,9 +69,8 @@ exports.login = async (req, res) => {
   }
 };
 
-// --- BEN KİMİM? (Sayfa yenilenince çalışır) ---
+// --- PROFİL BİLGİSİ (ME) ---
 exports.me = async (req, res) => {
-  // req.user, authMiddleware'den geliyor
   if (req.user) {
     res.json({
       _id: req.user._id,
@@ -94,5 +82,50 @@ exports.me = async (req, res) => {
     });
   } else {
     res.status(404).json({ message: "Kullanıcı bulunamadı" });
+  }
+};
+
+// --- YENİ EKLENEN: PROFİL GÜNCELLEME ---
+exports.updateDetails = async (req, res) => {
+  try {
+    // req.user, authMiddleware'den geliyor (Giriş yapmış kişi)
+    const user = await User.findById(req.user._id);
+
+    if (user) {
+      // İsim güncelle
+      user.name = req.body.name || user.name;
+      
+      // Email güncelle (Eğer değiştiyse ve başkası kullanmıyorsa)
+      if (req.body.email && req.body.email !== user.email) {
+        const emailExists = await User.findOne({ email: req.body.email });
+        if (emailExists) {
+          return res.status(400).json({ message: "Bu e-posta adresi zaten kullanılıyor." });
+        }
+        user.email = req.body.email;
+      }
+
+      // Şifre güncelle (Eğer boş değilse)
+      if (req.body.password) {
+        user.password = req.body.password; 
+        // Not: User modelindeki 'pre save' hook'u şifreyi otomatik hash'leyecek.
+      }
+
+      const updatedUser = await user.save();
+
+      // Güncel bilgileri ve yeni token'ı döndür
+      res.json({
+        _id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        credits: updatedUser.credits,
+        token: generateToken(updatedUser._id),
+      });
+    } else {
+      res.status(404).json({ message: "Kullanıcı bulunamadı" });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Güncelleme başarısız oldu" });
   }
 };
