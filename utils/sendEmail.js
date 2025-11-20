@@ -1,26 +1,23 @@
 const nodemailer = require("nodemailer");
 
 const sendEmail = async (options) => {
-  // 1) Hostinger Ayarlarıyla Postacı Oluşturuluyor
   const transporter = nodemailer.createTransport({
-    host: "smtp.hostinger.com", // Hostinger SMTP sunucusu
-    port: 465,                  // Güvenli Port
-    secure: true,               // 465 portu için true olmalı
+    host: "smtp.hostinger.com",
+    port: 587,                // 465 yerine 587 yaptık
+    secure: false,            // 587 için false olmalı
     auth: {
-      user: "info@odevai.pro",  // Hostinger'da açtığın mail adresi
-      pass: "Emrecansever1,",      // O mail için belirlediğin şifre
+      user: "info@odevai.pro", 
+      pass: "SENIN_HOSTINGER_SIFREN", // Şifreni buraya tekrar yazmayı unutma!
     },
   });
 
-  // 2) Mail Seçeneklerini Ayarla
   const mailOptions = {
-    from: "OdevAI Destek <info@odevai.pro>", // Gönderen kısmında bu görünecek
+    from: "OdevAI Destek <info@odevai.pro>",
     to: options.email,
     subject: options.subject,
     html: options.message,
   };
 
-  // 3) Maili Gönder
   await transporter.sendMail(mailOptions);
 };
 
