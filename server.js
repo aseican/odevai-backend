@@ -15,7 +15,7 @@ const app = express();
 // --- VERİTABANI BAĞLANTISI ---
 connectDB();
 
-// --- CORS AYARLARI (Zırhlı Versiyon) ---
+// --- CORS AYARLARI (Güçlü ve Preflight uyumlu) ---
 const allowedOrigins = [
   "https://www.odevai.pro",
   "https://odevai.pro",
@@ -24,24 +24,29 @@ const allowedOrigins = [
   "http://localhost:3000"
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // origin yoksa (örn: Postman) veya listede varsa izin ver
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log("CORS Engellendi:", origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true, // Token taşımak için şart
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"]
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // origin yoksa (örn: Postman) veya whitelist'teyse izin ver
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("🚫 CORS Engellendi:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ⭐ Preflight (OPTIONS) isteklerini mutlaka kabul et
+app.options("*", cors());
 
 // 50 MB'a kadar dosya kabul et
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // --- ROTALARI AKTİF ET ---
 app.use("/api/auth", authRoutes);
@@ -49,7 +54,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/pdf", pdfRoutes);
 app.use("/api/admin", adminRoutes);
 
-// Uploads klasörünü dışarıya aç
+// Uploads klasörünü dışarı aç
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Sağlık Kontrolü
@@ -58,4 +63,6 @@ app.get("/", (req, res) => res.send("Backend Çalışıyor!"));
 // --- PORT AYARI ---
 const PORT = process.env.PORT || 80;
 
-app.listen(PORT, () => console.log(`🔥 Backend ${PORT} portunda çalışıyor`));
+app.listen(PORT, () =>
+  console.log(`🔥 Backend ${PORT} portunda çalışıyor`)
+);
