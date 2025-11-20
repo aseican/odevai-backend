@@ -10,6 +10,30 @@ const shopier = new Shopier(
   process.env.SHOPIER_API_SECRET
 );
 
+// ---------- İsim Bölme Fonksiyonu (3+ kelime destekli) ----------
+function splitFullName(fullName) {
+  if (!fullName) return { name: "Kullanıcı", surname: "Musteri" };
+
+  const parts = fullName.trim().split(" ");
+
+  // Tek kelime isim → soyad uyduruyoruz
+  if (parts.length === 1) {
+    return {
+      name: parts[0],
+      surname: "Musteri",
+    };
+  }
+
+  // İlk kelime → ad
+  // Geri kalan → soyad
+  return {
+    name: parts[0],
+    surname: parts.slice(1).join(" "),
+  };
+}
+// ---------------------------------------------------------------
+
+
 exports.startPayment = async (req, res) => {
   try {
     const { packageName, price, credits } = req.body;
@@ -31,14 +55,19 @@ exports.startPayment = async (req, res) => {
 
     console.log("🟩 PAYMENT STARTED:", merchant_oid);
 
+    // ------ İsimleri Shopier için doğru formatla böl ------
+    const { name, surname } = splitFullName(user.name);
+    // -------------------------------------------------------
+
+
     const paymentHTML = shopier.generatePaymentHTML({
       orderId: merchant_oid,
       amount: price,
       productName: packageName,
       buyer: {
         id: user._id,
-        name: user.name || "Kullanıcı",
-        surname: "Müşteri",
+        name,
+        surname,
         email: user.email,
         phone: "05555555555",
       },
@@ -53,6 +82,7 @@ exports.startPayment = async (req, res) => {
     res.status(500).json({ message: "Ödeme başlatılamadı" });
   }
 };
+
 
 exports.callback = async (req, res) => {
   console.log("📩 CALLBACK GELDİ:", req.body);
