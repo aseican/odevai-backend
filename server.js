@@ -81,6 +81,6 @@ app.get("/", (req, res) => res.send("Backend Çalışıyor!"));
 // --- PORT AYARI ---
 const PORT = process.env.PORT || 80;
 
-app.listen(PORT, () =>
+app.listen(PORT, "0.0.0.0", () => 
   console.log(`🔥 Backend ${PORT} portunda çalışıyor`)
 );
