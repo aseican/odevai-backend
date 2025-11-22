@@ -8,7 +8,6 @@ const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 const PYTHON_SCRIPT = path.join(process.cwd(), "convert_script.py");
 
 // LibreOffice Yolu (Linux ve Windows uyumlu)
-// Linux'ta terminalde 'soffice' komutu globaldir.
 const LIBREOFFICE_PATH = process.platform === "win32" 
   ? '"C:\\Program Files\\LibreOffice\\program\\soffice.exe"' 
   : "soffice"; 
@@ -110,7 +109,7 @@ exports.wordToPdf = async (req, res) => {
   }
 };
 
-// --- 3. PDF to WORD (Python ile - MEVCUT YÖNTEM) ---
+// --- 3. PDF to WORD (Python ile - GÜNCELLENDİ) ---
 exports.pdfToWord = async (req, res) => {
   if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
   const { inputPath, outputPath } = getSafePaths(req, "docx");
@@ -119,15 +118,21 @@ exports.pdfToWord = async (req, res) => {
     fs.writeFileSync(inputPath, req.file.buffer);
     
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
-    const command = `${pythonCmd} "${PYTHON_SCRIPT}" "${inputPath}" "${outputPath}"`;
+    // DİKKAT: Araya 'convert' parametresini ekledik!
+    const command = `${pythonCmd} "${PYTHON_SCRIPT}" convert "${inputPath}" "${outputPath}"`;
+
+    console.log("PDF->Word Python Başlatılıyor:", command);
 
     exec(command, (err, stdout, stderr) => {
       if (err) {
         console.error("Python Hatası (PDF->Word):", stderr || err);
+        // Detaylı hata görmek için stdout da basalım
+        console.log("Python Çıktısı:", stdout);
         return res.status(500).json({ message: "Dönüştürme başarısız." });
       }
 
       if (!fs.existsSync(outputPath)) {
+         console.error("Word dosyası oluşmadı. Çıktı:", stdout);
          return res.status(500).json({ message: "Word dosyası oluşmadı." });
       }
       
@@ -139,10 +144,13 @@ exports.pdfToWord = async (req, res) => {
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       res.send(buffer);
     });
-  } catch (error) { res.status(500).json({ message: "Hata" }); }
+  } catch (error) { 
+      console.error("Controller Hatası:", error);
+      res.status(500).json({ message: "Hata" }); 
+  }
 };
 
-// --- 4. PDF to EXCEL (Python ile - GÜÇLENDİRİLMİŞ) ---
+// --- 4. PDF to EXCEL (Python ile - GÜNCELLENDİ) ---
 exports.pdfToExcel = async (req, res) => {
   if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
   const { inputPath, outputPath } = getSafePaths(req, "xlsx");
@@ -150,18 +158,15 @@ exports.pdfToExcel = async (req, res) => {
   try {
     fs.writeFileSync(inputPath, req.file.buffer);
 
-    // Linux'ta 'python3', Windows'ta 'python'
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
-    
-    // Script .xlsx uzantısını görünce otomatik Excel moduna geçer
-    const command = `${pythonCmd} "${PYTHON_SCRIPT}" "${inputPath}" "${outputPath}"`;
+    // DİKKAT: Araya 'convert' parametresini ekledik!
+    const command = `${pythonCmd} "${PYTHON_SCRIPT}" convert "${inputPath}" "${outputPath}"`;
     
     console.log("Python Çalışıyor (PDF -> Excel)...");
 
     exec(command, (err, stdout, stderr) => {
       if (err) {
         console.error("Python Hatası (PDF->Excel):", stderr || err);
-        // Hata mesajını kullanıcıya dönebilirsin
         return res.status(500).json({ message: "Dönüştürme başarısız (Tablo bulunamadı)." });
       }
 
