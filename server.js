@@ -7,7 +7,7 @@ const path = require("path");
 // --- ROTA DOSYALARINI İÇERİ AL ---
 const authRoutes = require("./routes/authRoutes");
 const aiRoutes = require("./routes/aiRoutes");
-// const pdfRoutes = require("./routes/pdfRoutes"); // Varsa açarsın
+const pdfRoutes = require("./routes/pdfRoutes"); // Varsa açarsın
 const adminRoutes = require("./routes/adminRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const shopierRoutes = require("./routes/shopierRoutes"); // Shopier rotası eklendi
@@ -58,7 +58,7 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // --- ROTALARI AKTİF ET ---
 app.use("/api/auth", authRoutes);
 app.use("/api/ai", aiRoutes);
-// app.use("/api/pdf", pdfRoutes);
+app.use("/api/pdf", pdfRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/shopier", shopierRoutes); // Shopier rotası aktif
