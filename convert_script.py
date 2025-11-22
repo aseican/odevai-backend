@@ -6,14 +6,9 @@ import pdfplumber
 import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
 
-# AĞIR KÜTÜPHANELERİ BURAYA KOYMA! (Pikepdf, Tesseract vb.)
-# Onları aşağıda fonksiyon içinde çağıracağız.
-
 # --- YARDIMCI: PDF ŞİFRE ÇÖZÜCÜ ---
 def decrypt_pdf_if_needed(input_path):
-    # Pikepdf'i sadece lazım olunca çağır
     import pikepdf 
-    
     temp_filename = f"temp_decrypted_{os.path.basename(input_path)}"
     try:
         with pikepdf.open(input_path, allow_overwriting_input=True) as pdf:
@@ -89,7 +84,7 @@ def pdf_to_excel(pdf_file, excel_file):
     finally:
         cleanup_temp_file(usable_pdf, is_temp)
 
-# --- 3. YOUTUBE ÖZETİ (GÜNCELLENMİŞ VERSİYON) ---
+# --- 3. YOUTUBE ÖZETİ (ESKİ/YENİ SÜRÜM UYUMLU) ---
 def get_youtube_transcript(video_url, output_file):
     try:
         if "v=" in video_url:
@@ -100,30 +95,29 @@ def get_youtube_transcript(video_url, output_file):
             print("Hata: Gecersiz YouTube linki")
             sys.exit(1)
 
-        # YENİ VERSİYON KODU BURADA
-        try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-        except Exception as e:
-            print(f"Hata: Video altyazisi yok veya erisilemiyor. ({e})")
-            sys.exit(1)
-
-        transcript = None
-        try:
-            transcript = transcript_list.find_transcript(['tr', 'tr-TR'])
-        except:
-            try:
-                transcript = transcript_list.find_transcript(['en', 'en-US'])
-            except:
-                for t in transcript_list:
-                    transcript = t
-                    break
+        # BURASI DEĞİŞTİ: list_transcripts yerine get_transcript kullanıyoruz.
+        # Bu yöntem en eski kütüphane sürümlerinde bile çalışır.
+        # Öncelik sırası: Türkçe > İngilizce > Diğerleri
+        languages_to_try = ['tr', 'tr-TR', 'en', 'en-US', 'de', 'fr', 'es', 'it']
         
-        if not transcript:
-            print("Hata: Uygun altyazi bulunamadi.")
+        transcript_data = None
+        
+        try:
+            # Diller listesindeki ilk bulunanı getirir (Otomatik dahil)
+            transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=languages_to_try)
+        except Exception as e:
+            # Eğer listedekiler yoksa, videonun varsayılan dilini zorla almayı dene
+            try:
+                transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
+            except Exception as final_error:
+                 print(f"Hata: Altyazi bulunamadi. ({final_error})")
+                 sys.exit(1)
+        
+        if not transcript_data:
+            print("Hata: Veri bos dondu.")
             sys.exit(1)
 
-        final_data = transcript.fetch()
-        full_text = " ".join([t['text'] for t in final_data])
+        full_text = " ".join([t['text'] for t in transcript_data])
         
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(full_text)
@@ -136,7 +130,6 @@ def get_youtube_transcript(video_url, output_file):
 
 # --- 4. PDF METİN (OCR DESTEKLİ) ---
 def extract_text_from_pdf(pdf_file, output_txt_file):
-    # OCR kütüphanelerini SADECE BURADA çağır
     import pytesseract
     from pdf2image import convert_from_path
     
