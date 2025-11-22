@@ -7,8 +7,8 @@ const { PDFDocument } = require("pdf-lib");
 const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 const PYTHON_SCRIPT = path.join(process.cwd(), "convert_script.py");
 
-// LibreOffice Yolu (Windows için genelde buradadır, değilse değiştir)
-// Eğer terminale 'soffice' yazınca çalışıyorsa sadece 'soffice' bırakabilirsin.
+// LibreOffice Yolu (Linux ve Windows uyumlu)
+// Linux'ta terminalde 'soffice' komutu globaldir.
 const LIBREOFFICE_PATH = process.platform === "win32" 
   ? '"C:\\Program Files\\LibreOffice\\program\\soffice.exe"' 
   : "soffice"; 
@@ -78,13 +78,13 @@ exports.wordToPdf = async (req, res) => {
   try {
     fs.writeFileSync(inputPath, req.file.buffer);
 
-    // Windows için özel geçici klasör ayarı (Çakışmayı önler)
+    // Linux/Windows uyumlu geçici klasör ayarı
     const uniqueEnv = `file:///tmp/LO_W2P_${Date.now()}`;
     
     // Komut: LibreOffice'i 'headless' (arayüzsüz) modda çalıştır
     const command = `${LIBREOFFICE_PATH} -env:UserInstallation="${uniqueEnv}" --headless --convert-to pdf "${inputPath}" --outdir "${UPLOADS_DIR}"`;
     
-    console.log("LibreOffice Çalışıyor...");
+    console.log("LibreOffice Çalışıyor (Word -> PDF)...");
 
     exec(command, (err, stdout, stderr) => {
       if (err) {
@@ -121,10 +121,14 @@ exports.pdfToWord = async (req, res) => {
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
     const command = `${pythonCmd} "${PYTHON_SCRIPT}" "${inputPath}" "${outputPath}"`;
 
-    exec(command, (err) => {
-      if (err || !fs.existsSync(outputPath)) {
-        console.error("Python Hatası:", err);
+    exec(command, (err, stdout, stderr) => {
+      if (err) {
+        console.error("Python Hatası (PDF->Word):", stderr || err);
         return res.status(500).json({ message: "Dönüştürme başarısız." });
+      }
+
+      if (!fs.existsSync(outputPath)) {
+         return res.status(500).json({ message: "Word dosyası oluşmadı." });
       }
       
       const buffer = fs.readFileSync(outputPath);
@@ -138,26 +142,43 @@ exports.pdfToWord = async (req, res) => {
   } catch (error) { res.status(500).json({ message: "Hata" }); }
 };
 
-// --- 4. PDF to EXCEL (LibreOffice ile) ---
+// --- 4. PDF to EXCEL (Python ile - GÜÇLENDİRİLMİŞ) ---
 exports.pdfToExcel = async (req, res) => {
-    if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
-    const { inputPath, outputPath } = getSafePaths(req, "xlsx");
-  
-    try {
-      fs.writeFileSync(inputPath, req.file.buffer);
-      const uniqueEnv = `file:///tmp/LO_P2E_${Date.now()}`;
+  if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi" });
+  const { inputPath, outputPath } = getSafePaths(req, "xlsx");
+
+  try {
+    fs.writeFileSync(inputPath, req.file.buffer);
+
+    // Linux'ta 'python3', Windows'ta 'python'
+    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    
+    // Script .xlsx uzantısını görünce otomatik Excel moduna geçer
+    const command = `${pythonCmd} "${PYTHON_SCRIPT}" "${inputPath}" "${outputPath}"`;
+    
+    console.log("Python Çalışıyor (PDF -> Excel)...");
+
+    exec(command, (err, stdout, stderr) => {
+      if (err) {
+        console.error("Python Hatası (PDF->Excel):", stderr || err);
+        // Hata mesajını kullanıcıya dönebilirsin
+        return res.status(500).json({ message: "Dönüştürme başarısız (Tablo bulunamadı)." });
+      }
+
+      if (!fs.existsSync(outputPath)) {
+        return res.status(500).json({ message: "Excel dosyası oluşturulamadı." });
+      }
+
+      const buffer = fs.readFileSync(outputPath);
+      try { fs.unlinkSync(inputPath); fs.unlinkSync(outputPath); } catch (e) {}
       
-      // Excel dönüşümü
-      const command = `${LIBREOFFICE_PATH} -env:UserInstallation="${uniqueEnv}" --headless --infilter="writer_pdf_import" --convert-to xlsx "${inputPath}" --outdir "${UPLOADS_DIR}"`;
-  
-      exec(command, (err) => {
-        if (!fs.existsSync(outputPath)) return res.status(500).json({ message: "Dosya oluşturulamadı" });
-        const buffer = fs.readFileSync(outputPath);
-        try { fs.unlinkSync(inputPath); fs.unlinkSync(outputPath); } catch (e) {}
-        const finalName = getDownloadName(req.file.originalname, "xlsx");
-        res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(finalName)}"`);
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.send(buffer);
-      });
-    } catch (error) { res.status(500).json({ message: "Hata" }); }
-  };
+      const finalName = getDownloadName(req.file.originalname, "xlsx");
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(finalName)}"`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.send(buffer);
+    });
+  } catch (error) { 
+    console.error("Genel Hata:", error);
+    res.status(500).json({ message: "Hata" }); 
+  }
+};
