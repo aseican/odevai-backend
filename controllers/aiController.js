@@ -364,6 +364,10 @@ exports.summarizeYoutube = async (req, res) => {
 exports.chatWithPdf = async (req, res) => {
   const COST = 5; 
 
+  console.log("--> ChatPDF İsteği Geldi!");
+  console.log("Body (Soru):", req.body);
+  console.log("File (Dosya):", req.file);
+
   // Dosya kontrolünü sıkılaştır
   if (!req.file || !req.file.filename) {
       return res.status(400).json({ message: "PDF yüklenmedi veya dosya hatası." });
