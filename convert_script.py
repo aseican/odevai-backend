@@ -95,9 +95,11 @@ def pdf_to_excel(pdf_file, excel_file):
     finally:
         cleanup_temp_file(usable_pdf, is_temp)
 
-# --- 3. YOUTUBE ÖZETİ ---
+# --- 3. YOUTUBE ÖZETİ (AKILLI VERSİYON) ---
 def get_youtube_transcript(video_url, output_file):
     try:
+        # 1. Video ID'yi Bul
+        video_id = ""
         if "v=" in video_url:
             video_id = video_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in video_url:
@@ -106,16 +108,48 @@ def get_youtube_transcript(video_url, output_file):
             print("Hata: Gecersiz YouTube linki")
             sys.exit(1)
 
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['tr', 'en'])
-        full_text = " ".join([t['text'] for t in transcript_list])
+        # 2. Tüm Altyazıları Listele (Manuel veya Otomatik)
+        try:
+            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        except Exception as e:
+             # Eğer liste alınamıyorsa büyük ihtimalle video kısıtlıdır veya IP engeli vardır
+             print(f"Hata: Video erisilemiyor veya altyazi kapali. ({e})")
+             sys.exit(1)
+
+        # 3. En Uygun Dili Seçme Stratejisi
+        transcript = None
         
+        try:
+            # A Planı: Direkt Türkçe (Manuel veya Otomatik) bulmaya çalış
+            transcript = transcript_list.find_transcript(['tr', 'tr-TR'])
+        except:
+            try:
+                # B Planı: İngilizce bulmaya çalış
+                transcript = transcript_list.find_transcript(['en', 'en-US', 'en-GB'])
+            except:
+                # C Planı: Ne varsa onu al (Almanca, İspanyolca vs.)
+                # iterate edip ilkini alıyoruz
+                for t in transcript_list:
+                    transcript = t
+                    break
+        
+        if not transcript:
+            print("Hata: Hicbir dilde altyazi bulunamadi.")
+            sys.exit(1)
+
+        # 4. Veriyi Çek
+        final_data = transcript.fetch()
+        full_text = " ".join([t['text'] for t in final_data])
+        
+        # 5. Dosyaya Yaz
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(full_text)
             
         print(f"Basarili: {output_file}")
 
     except Exception as e:
-        print(f"Hata: Altyazi alinamadi. ({e})")
+        # Genel Hata Yakalama
+        print(f"Hata: Beklenmeyen bir sorun olustu. ({e})")
         sys.exit(1)
 
 # --- 4. PDF METİN ÇIKARMA (CHATPDF & AI SORU HAZIRLAMA) ---
