@@ -1,16 +1,18 @@
 import sys
 import os
+# Sadece hafif kütüphaneler en başta
 from pdf2docx import Converter
 import pdfplumber
 import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
 
-# Not: Ağır kütüphaneler (pikepdf, pytesseract) performans için
-# sadece ilgili fonksiyonların içinde import edilecektir.
+# AĞIR KÜTÜPHANELERİ BURAYA KOYMA! (Pikepdf, Tesseract vb.)
+# Onları aşağıda fonksiyon içinde çağıracağız.
 
 # --- YARDIMCI: PDF ŞİFRE ÇÖZÜCÜ ---
 def decrypt_pdf_if_needed(input_path):
-    import pikepdf # Sadece burada çağırıyoruz
+    # Pikepdf'i sadece lazım olunca çağır
+    import pikepdf 
     
     temp_filename = f"temp_decrypted_{os.path.basename(input_path)}"
     try:
@@ -63,7 +65,7 @@ def pdf_to_excel(pdf_file, excel_file):
             print(f"Basarili: {excel_file}")
             return
 
-        # Tablo yoksa metin modu
+        # Metin modu
         all_text_data = []
         with pdfplumber.open(usable_pdf) as pdf:
             for page in pdf.pages:
@@ -87,11 +89,9 @@ def pdf_to_excel(pdf_file, excel_file):
     finally:
         cleanup_temp_file(usable_pdf, is_temp)
 
-# --- 3. YOUTUBE ÖZETİ (AKILLI VERSİYON) ---
+# --- 3. YOUTUBE ÖZETİ (GÜNCELLENMİŞ VERSİYON) ---
 def get_youtube_transcript(video_url, output_file):
     try:
-        # ID Ayıklama
-        video_id = ""
         if "v=" in video_url:
             video_id = video_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in video_url:
@@ -100,14 +100,13 @@ def get_youtube_transcript(video_url, output_file):
             print("Hata: Gecersiz YouTube linki")
             sys.exit(1)
 
-        # Listeyi çek
+        # YENİ VERSİYON KODU BURADA
         try:
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         except Exception as e:
             print(f"Hata: Video altyazisi yok veya erisilemiyor. ({e})")
             sys.exit(1)
 
-        # Dil Seçimi (Akıllı Mod)
         transcript = None
         try:
             transcript = transcript_list.find_transcript(['tr', 'tr-TR'])
@@ -162,8 +161,7 @@ def extract_text_from_pdf(pdf_file, output_txt_file):
             images = convert_from_path(usable_pdf)
             full_text = ""
             for i, image in enumerate(images):
-                print(f"OCR: Sayfa {i+1} taraniyor...")
-                # Dil paketleri kurulu olmalı (setup.sh ile kurduk)
+                print(f"OCR Isleniyor: Sayfa {i+1}/{len(images)}")
                 page_text = pytesseract.image_to_string(image, lang='tur+eng')
                 full_text += page_text + "\n"
 
@@ -210,3 +208,7 @@ if __name__ == "__main__":
         input_pdf = sys.argv[2]
         output_txt = sys.argv[3]
         extract_text_from_pdf(input_pdf, output_txt)
+    
+    else:
+        print("Gecersiz islem")
+        sys.exit(1)

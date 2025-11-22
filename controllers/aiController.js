@@ -364,23 +364,89 @@ exports.summarizeYoutube = async (req, res) => {
 exports.chatWithPdf = async (req, res) => {
   const COST = 5; 
 
+  // --- LOGLAMA (HATA AYIKLAMA İÇİN) ---
   console.log("--> ChatPDF İsteği Geldi!");
   console.log("Body (Soru):", req.body);
-  console.log("File (Dosya):", req.file);
+  // Dosya ismini logla, undefined ise "YOK" yaz
+  console.log("File (Dosya):", req.file ? req.file.filename : "YOK");
 
-  // Dosya kontrolünü sıkılaştır
+  // 1. KRİTİK KONTROLLER
+  // Multer dosyayı kaydetmediyse veya dosya gelmediyse durdur
   if (!req.file || !req.file.filename) {
-      return res.status(400).json({ message: "PDF yüklenmedi veya dosya hatası." });
+      console.error("HATA: Dosya backend'e ulaşmadı.");
+      return res.status(400).json({ message: "PDF dosyası yüklenemedi veya eksik." });
   }
   
   const { question } = req.body;
-  if (!question) return res.status(400).json({ message: "Soru gerekli." });
+  if (!question) {
+      console.error("HATA: Soru eksik.");
+      return res.status(400).json({ message: "Lütfen bir soru yazın." });
+  }
 
-  if (req.user.credits < COST) return res.status(403).json({ message: "Yetersiz kredi." });
+  if (req.user.credits < COST) {
+      return res.status(403).json({ message: "Yetersiz kredi." });
+  }
 
-  // Dosya yolunu garantiye al
+  // 2. DOSYA YOLLARI
+  // path.join kullanarak işletim sistemi farkını (Linux/Windows) ortadan kaldırıyoruz
   const inputPdfPath = path.join(UPLOADS_DIR, req.file.filename); 
   const tempTxtPath = inputPdfPath + ".txt";
+
+  try {
+    // 3. PYTHON İLE METİN ÇIKARMA (OCR Destekli)
+    // 'pdf_text' parametresi convert_script.py içindeki text çıkarma fonksiyonunu çağırır
+    await runPythonScript(["pdf_text", inputPdfPath, tempTxtPath]);
+
+    // 4. METNİ OKUMA VE KONTROL ETME
+    if (!fs.existsSync(tempTxtPath)) {
+        throw new Error("Python metin dosyasını oluşturamadı (OCR başarısız olabilir).");
+    }
+    
+    let pdfText = fs.readFileSync(tempTxtPath, "utf-8");
+    
+    // Eğer PDF boşsa veya okunamadıysa
+    if (!pdfText || pdfText.trim().length === 0) {
+        throw new Error("PDF içeriği boş. Okunabilir bir metin bulunamadı.");
+    }
+
+    // Token limiti için metni kırp (50.000 karakter güvenli sınırdır)
+    if (pdfText.length > 50000) {
+        pdfText = pdfText.substring(0, 50000) + "\n...(Metnin geri kalanı sistem tarafından kırpıldı)";
+    }
+
+    // 5. OPENAI SORGUSU
+    const systemPrompt = "Sen bu PDF belgesinin uzmanısın. Kullanıcının sorusunu SADECE aşağıdaki belge içeriğine dayanarak cevapla. Eğer bilgi belgede yoksa, uydurma ve 'Bu bilgi belgede yer almıyor' de.";
+    const userPrompt = `BELGE İÇERİĞİ:\n${pdfText}\n\nKULLANICI SORUSU: ${question}`;
+
+    // callOpenAI fonksiyonunu çağır (aiService.js içindeki veya dosyanın üstündeki)
+    const aiResponse = await callOpenAI(userPrompt, 0.5, systemPrompt);
+
+    // 6. TEMİZLİK (İşlem başarılıysa dosyaları sil)
+    try { 
+      if(fs.existsSync(inputPdfPath)) fs.unlinkSync(inputPdfPath); 
+      if(fs.existsSync(tempTxtPath)) fs.unlinkSync(tempTxtPath); 
+    } catch(e) {
+      console.error("Dosya silme uyarısı:", e.message);
+    }
+
+    // 7. KREDİ DÜŞME VE CEVAP
+    await handleCreditDeduction(req.user._id, COST);
+    const updatedUser = await User.findById(req.user._id);
+
+    res.json({ answer: aiResponse, credits: updatedUser.credits });
+
+  } catch (error) {
+    console.error("ChatPDF Hatası:", error);
+
+    // Hata olsa bile sunucuda çöp dosya bırakma
+    try { 
+      if(fs.existsSync(inputPdfPath)) fs.unlinkSync(inputPdfPath); 
+      if(fs.existsSync(tempTxtPath)) fs.unlinkSync(tempTxtPath); 
+    } catch(e) {}
+    
+    // Kullanıcıya hatayı dön
+    res.status(500).json({ message: "PDF okunamadı veya cevap üretilemedi." });
+  }
 
   try {
     // 1. Python ile PDF metnini çıkar
