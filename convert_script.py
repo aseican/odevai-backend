@@ -4,6 +4,8 @@ from pdf2docx import Converter
 import pdfplumber
 import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
+import pytesseract
+from pdf2image import convert_from_path
 
 # --- 1. PDF -> WORD ---
 def pdf_to_word(pdf_file, docx_file):
@@ -20,7 +22,7 @@ def pdf_to_word(pdf_file, docx_file):
 def pdf_to_excel(pdf_file, excel_file):
     try:
         all_tables = []
-        # Tablo arama modu
+        # Tablo arama
         with pdfplumber.open(pdf_file) as pdf:
             for page in pdf.pages:
                 tables = page.extract_tables()
@@ -50,7 +52,8 @@ def pdf_to_excel(pdf_file, excel_file):
                         all_text_data.append([line])
         
         if not all_text_data:
-            print("Hata: PDF bos.")
+            # Burada OCR denenebilir ama Excel için OCR tablosu zordur, şimdilik hata dönüyoruz.
+            print("Hata: PDF bos veya tablo yok.")
             sys.exit(1)
 
         df = pd.DataFrame(all_text_data, columns=["PDF İçeriği"])
@@ -61,7 +64,7 @@ def pdf_to_excel(pdf_file, excel_file):
         print(f"Hata (Excel): {e}")
         sys.exit(1)
 
-# --- 3. YOUTUBE TRANSCRIPT (ÖZET İÇİN) ---
+# --- 3. YOUTUBE ÖZETİ ---
 def get_youtube_transcript(video_url, output_file):
     try:
         if "v=" in video_url:
@@ -72,7 +75,6 @@ def get_youtube_transcript(video_url, output_file):
             print("Hata: Gecersiz YouTube linki")
             sys.exit(1)
 
-        # Türkçe dene, yoksa İngilizce al
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['tr', 'en'])
         full_text = " ".join([t['text'] for t in transcript_list])
         
@@ -82,22 +84,42 @@ def get_youtube_transcript(video_url, output_file):
         print(f"Basarili: {output_file}")
 
     except Exception as e:
-        # Hata mesajını stdout'a yaz ki Node.js okuyabilsin
         print(f"Hata: Altyazi alinamadi. ({e})")
         sys.exit(1)
 
-# --- 4. PDF METİN ÇIKARMA (CHATPDF İÇİN) ---
+# --- 4. PDF METİN ÇIKARMA (CHATPDF & AI SORU HAZIRLAMA) ---
+# BURASI GÜNCELLENDİ: ARTIK OCR (RESİM OKUMA) YETENEĞİ VAR!
 def extract_text_from_pdf(pdf_file, output_txt_file):
     try:
         full_text = ""
-        with pdfplumber.open(pdf_file) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    full_text += page_text + "\n"
+        page_count = 0
         
+        # 1. YÖNTEM: Hızlı Okuma (pdfplumber)
+        with pdfplumber.open(pdf_file) as pdf:
+            page_count = len(pdf.pages)
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    full_text += text + "\n"
+        
+        # 2. KONTROL: Eğer metin çok azsa (Sayfa başı 50 karakterden azsa) OCR devreye girsin
+        avg_char_per_page = len(full_text) / page_count if page_count > 0 else 0
+        
+        if avg_char_per_page < 50:
+            print("Bilgi: Metin bulunamadi (Resim PDF). OCR motoru baslatiliyor (Bu islem biraz sürebilir)...")
+            
+            # PDF sayfalarını resme çevir
+            images = convert_from_path(pdf_file)
+            full_text = "" # Metni sıfırla, OCR ile yeniden doldur
+            
+            for i, image in enumerate(images):
+                print(f"OCR Taraniyor: Sayfa {i+1}/{len(images)}")
+                # Türkçe ve İngilizce tarama yap
+                page_text = pytesseract.image_to_string(image, lang='tur+eng')
+                full_text += page_text + "\n"
+
         if not full_text.strip():
-            print("Hata: PDF icinden metin okunamadi.")
+            print("Hata: PDF tamamen bos veya okunamadi.")
             sys.exit(1)
 
         with open(output_txt_file, "w", encoding="utf-8") as f:
@@ -106,7 +128,7 @@ def extract_text_from_pdf(pdf_file, output_txt_file):
         print(f"Basarili: {output_txt_file}")
 
     except Exception as e:
-        print(f"Hata (PDF Text): {e}")
+        print(f"Hata (PDF Text/OCR): {e}")
         sys.exit(1)
 
 # --- ANA YÖNETİCİ ---
@@ -118,9 +140,8 @@ if __name__ == "__main__":
         print("Eksik arguman")
         sys.exit(1)
 
-    action = sys.argv[1] # Hangi islem yapilacak?
+    action = sys.argv[1]
 
-    # python script.py convert girdi.pdf cikti.docx
     if action == "convert":
         input_path = sys.argv[2]
         output_path = sys.argv[3]
@@ -129,13 +150,11 @@ if __name__ == "__main__":
         elif output_path.endswith('.xlsx'):
             pdf_to_excel(input_path, output_path)
     
-    # python script.py youtube <url> cikti.txt
     elif action == "youtube":
         url = sys.argv[2]
         output_txt = sys.argv[3]
         get_youtube_transcript(url, output_txt)
 
-    # python script.py pdf_text girdi.pdf cikti.txt
     elif action == "pdf_text":
         input_pdf = sys.argv[2]
         output_txt = sys.argv[3]
