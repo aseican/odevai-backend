@@ -362,34 +362,41 @@ exports.summarizeYoutube = async (req, res) => {
 
 /* 7) CHATPDF - PDF İLE SOHBET */
 exports.chatWithPdf = async (req, res) => {
-  const COST = 2; // Her soru 2 kredi
+  const COST = 5; 
 
-  if (!req.file) return res.status(400).json({ message: "PDF yüklenmedi." });
+  // Dosya kontrolünü sıkılaştır
+  if (!req.file || !req.file.filename) {
+      return res.status(400).json({ message: "PDF yüklenmedi veya dosya hatası." });
+  }
+  
   const { question } = req.body;
   if (!question) return res.status(400).json({ message: "Soru gerekli." });
 
   if (req.user.credits < COST) return res.status(403).json({ message: "Yetersiz kredi." });
 
-  const inputPdfPath = path.join(UPLOADS_DIR, req.file.filename); // Multer ile kaydedilmiş dosya
+  // Dosya yolunu garantiye al
+  const inputPdfPath = path.join(UPLOADS_DIR, req.file.filename); 
   const tempTxtPath = inputPdfPath + ".txt";
 
   try {
-    // 1. Python ile PDF metnini çıkar (Daha iyi okuma için)
+    // 1. Python ile PDF metnini çıkar
     await runPythonScript(["pdf_text", inputPdfPath, tempTxtPath]);
 
     // 2. Metni oku
+    if (!fs.existsSync(tempTxtPath)) {
+        throw new Error("Metin dosyası oluşturulamadı.");
+    }
+    
     let pdfText = fs.readFileSync(tempTxtPath, "utf-8");
     
-    // Uzunluk kontrolü (Context Window)
     if (pdfText.length > 50000) pdfText = pdfText.substring(0, 50000) + "\n...(Metin kısaltıldı)";
 
-    // 3. OpenAI RAG Promptu
-    const systemPrompt = "Sen bu PDF belgesinin uzmanısın. Kullanıcının sorusunu SADECE aşağıdaki belgeye dayanarak cevapla. Eğer bilgi belgede yoksa, uydurma ve 'Bu bilgi belgede yer almıyor' de.";
+    const systemPrompt = "Sen bu PDF belgesinin uzmanısın. Kullanıcının sorusunu SADECE aşağıdaki belgeye dayanarak cevapla.";
     const userPrompt = `BELGE İÇERİĞİ:\n${pdfText}\n\nKULLANICI SORUSU: ${question}`;
 
     const aiResponse = await callOpenAI(userPrompt, 0.5, systemPrompt);
 
-    // 4. Temizlik ve Kredi
+    // Temizlik
     try { 
       fs.unlinkSync(inputPdfPath); 
       fs.unlinkSync(tempTxtPath); 
@@ -402,7 +409,6 @@ exports.chatWithPdf = async (req, res) => {
 
   } catch (error) {
     console.error("ChatPDF Hatası:", error);
-    // Temizlik
     try { 
       if(fs.existsSync(inputPdfPath)) fs.unlinkSync(inputPdfPath); 
       if(fs.existsSync(tempTxtPath)) fs.unlinkSync(tempTxtPath); 
