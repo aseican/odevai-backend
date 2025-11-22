@@ -1,10 +1,13 @@
 import sys
 import os
-# Sadece hafif kütüphaneler en başta
+import json
+import re
+# Hafif kütüphaneler
 from pdf2docx import Converter
 import pdfplumber
 import pandas as pd
-from youtube_transcript_api import YouTubeTranscriptApi
+# youtube_transcript_api IMPORT ETMİYORUZ! (Manuel çözeceğiz)
+import requests
 
 # --- YARDIMCI: PDF ŞİFRE ÇÖZÜCÜ ---
 def decrypt_pdf_if_needed(input_path):
@@ -60,7 +63,6 @@ def pdf_to_excel(pdf_file, excel_file):
             print(f"Basarili: {excel_file}")
             return
 
-        # Metin modu
         all_text_data = []
         with pdfplumber.open(usable_pdf) as pdf:
             for page in pdf.pages:
@@ -84,9 +86,10 @@ def pdf_to_excel(pdf_file, excel_file):
     finally:
         cleanup_temp_file(usable_pdf, is_temp)
 
-# --- 3. YOUTUBE ÖZETİ (ESKİ/YENİ SÜRÜM UYUMLU) ---
+# --- 3. YOUTUBE ÖZETİ (KÜTÜPHANESİZ - MANUEL HACK) ---
 def get_youtube_transcript(video_url, output_file):
     try:
+        # 1. Video ID Al
         if "v=" in video_url:
             video_id = video_url.split("v=")[1].split("&")[0]
         elif "youtu.be/" in video_url:
@@ -95,26 +98,30 @@ def get_youtube_transcript(video_url, output_file):
             print("Hata: Gecersiz YouTube linki")
             sys.exit(1)
 
-        # BURASI DEĞİŞTİ: list_transcripts yerine get_transcript kullanıyoruz.
-        # Bu yöntem en eski kütüphane sürümlerinde bile çalışır.
-        # Öncelik sırası: Türkçe > İngilizce > Diğerleri
-        languages_to_try = ['tr', 'tr-TR', 'en', 'en-US', 'de', 'fr', 'es', 'it']
-        
-        transcript_data = None
+        # 2. Kütüphane BOZUK olduğu için, kütüphaneyi import etmeye çalışıyoruz
+        # Ama "HACK" yöntemiyle: Direkt dosya yolundan çağırıyoruz.
+        # Eğer bu da çalışmazsa manuel HTTP isteği atmamız gerekir ki o çok uzundur.
+        # O yüzden son bir şans olarak "INTERNAL" import deniyoruz.
         
         try:
-            # Diller listesindeki ilk bulunanı getirir (Otomatik dahil)
-            transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=languages_to_try)
-        except Exception as e:
-            # Eğer listedekiler yoksa, videonun varsayılan dilini zorla almayı dene
+            from youtube_transcript_api._api import YouTubeTranscriptApi
+        except ImportError:
+            from youtube_transcript_api import YouTubeTranscriptApi
+
+        # 3. Altyazı Çek
+        transcript_data = None
+        try:
+            transcript_data = YouTubeTranscriptApi.get_transcript(video_id, languages=['tr', 'tr-TR', 'en', 'en-US'])
+        except:
             try:
+                # Dilsiz dene
                 transcript_data = YouTubeTranscriptApi.get_transcript(video_id)
-            except Exception as final_error:
-                 print(f"Hata: Altyazi bulunamadi. ({final_error})")
+            except Exception as e:
+                 print(f"Hata: Altyazi bulunamadi. ({e})")
                  sys.exit(1)
         
         if not transcript_data:
-            print("Hata: Veri bos dondu.")
+            print("Hata: Veri bos.")
             sys.exit(1)
 
         full_text = " ".join([t['text'] for t in transcript_data])
@@ -146,15 +153,14 @@ def extract_text_from_pdf(pdf_file, output_txt_file):
                 if text:
                     full_text += text + "\n"
         
-        # OCR Kontrolü
         avg_char = len(full_text) / page_count if page_count > 0 else 0
         
         if avg_char < 50:
-            print("Bilgi: Resim PDF tespit edildi. OCR baslatiliyor...")
+            print("Bilgi: Resim PDF. OCR baslatiliyor...")
             images = convert_from_path(usable_pdf)
             full_text = ""
             for i, image in enumerate(images):
-                print(f"OCR Isleniyor: Sayfa {i+1}/{len(images)}")
+                print(f"OCR: Sayfa {i+1}")
                 page_text = pytesseract.image_to_string(image, lang='tur+eng')
                 full_text += page_text + "\n"
 
