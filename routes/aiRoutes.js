@@ -3,13 +3,15 @@ const router = express.Router();
 const { protect } = require("../middleware/authMiddleware");
 const upload = require("../middleware/upload"); // Multer (Dosya Yükleme) Middleware
 
-// Controller'dan Yeni ve Güçlendirilmiş Fonksiyonları Çekiyoruz
+// Controller'dan Tüm Fonksiyonları (Eskiler + Yeniler) Çekiyoruz
 const { 
   generateHomework, 
   generatePdfSummary, 
   generatePdfQuestions, 
   generatePdfToPresentationText, 
-  generatePresentation 
+  generatePresentation,
+  summarizeYoutube, // <-- YENİ
+  chatWithPdf       // <-- YENİ
 } = require("../controllers/aiController");
 
 /* ==========================================================================
@@ -36,5 +38,15 @@ router.post("/pdf-to-text", protect, upload.single("file"), generatePdfToPresent
 // 5. Sunum Oluşturma (JSON Döner -> Frontend PPTX Yapar)
 // URL: /api/ai/create-presentation
 router.post("/create-presentation", protect, generatePresentation);
+
+/* --- YENİ EKLENENLER --- */
+
+// 6. YouTube Video Özeti (Sadece Link Gider)
+// URL: /api/ai/youtube-summary
+router.post("/youtube-summary", protect, summarizeYoutube);
+
+// 7. ChatPDF - PDF ile Sohbet (Dosya + Soru Gider)
+// URL: /api/ai/chat-pdf
+router.post("/chat-pdf", protect, upload.single("file"), chatWithPdf);
 
 module.exports = router;
