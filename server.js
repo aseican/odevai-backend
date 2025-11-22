@@ -10,7 +10,7 @@ const aiRoutes = require("./routes/aiRoutes");
 const pdfRoutes = require("./routes/pdfRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
-const shopierRoutes = require("./routes/shopierRoutes");
+//const shopierRoutes = require("./routes/shopierRoutes");
 
 const app = express();
 
@@ -52,7 +52,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/pdf", pdfRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payment", paymentRoutes);
-app.use("/api/shopier", shopierRoutes);
+//app.use("/api/shopier", shopierRoutes);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 

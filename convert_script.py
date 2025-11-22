@@ -1,29 +1,59 @@
 import sys
 import os
+import shutil
 from pdf2docx import Converter
 import pdfplumber
 import pandas as pd
 from youtube_transcript_api import YouTubeTranscriptApi
 import pytesseract
 from pdf2image import convert_from_path
+import pikepdf # Şifreli PDF'leri açmak için
+
+# --- YARDIMCI: PDF ŞİFRE ÇÖZÜCÜ ---
+def decrypt_pdf_if_needed(input_path):
+    """
+    PDF şifreliyse veya kısıtlamalıysa, şifresiz geçici bir kopyasını oluşturur.
+    Geriye (kullanılacak_dosya_yolu, geçici_dosya_silinsin_mi) döner.
+    """
+    temp_filename = f"temp_decrypted_{os.path.basename(input_path)}"
+    
+    try:
+        # Pikepdf ile dosyayı aç ve üzerine yazmaya izin ver
+        with pikepdf.open(input_path, allow_overwriting_input=True) as pdf:
+            pdf.save(temp_filename)
+        return temp_filename, True
+    except Exception:
+        # Eğer hata verirse (şifreli değilse veya pikepdf açamazsa) orijinali kullan
+        return input_path, False
+
+def cleanup_temp_file(path, should_delete):
+    if should_delete and os.path.exists(path):
+        try:
+            os.remove(path)
+        except:
+            pass
 
 # --- 1. PDF -> WORD ---
 def pdf_to_word(pdf_file, docx_file):
+    usable_pdf, is_temp = decrypt_pdf_if_needed(pdf_file)
     try:
-        cv = Converter(pdf_file)
+        cv = Converter(usable_pdf)
         cv.convert(docx_file, start=0, end=None)
         cv.close()
         print(f"Basarili: {docx_file}")
     except Exception as e:
         print(f"Hata: {e}")
         sys.exit(1)
+    finally:
+        cleanup_temp_file(usable_pdf, is_temp)
 
 # --- 2. PDF -> EXCEL ---
 def pdf_to_excel(pdf_file, excel_file):
+    usable_pdf, is_temp = decrypt_pdf_if_needed(pdf_file)
     try:
         all_tables = []
-        # Tablo arama
-        with pdfplumber.open(pdf_file) as pdf:
+        # 1. YÖNTEM: Tablo Arama
+        with pdfplumber.open(usable_pdf) as pdf:
             for page in pdf.pages:
                 tables = page.extract_tables()
                 for table in tables:
@@ -40,10 +70,10 @@ def pdf_to_excel(pdf_file, excel_file):
             print(f"Basarili: {excel_file}")
             return
 
-        # Tablo yoksa metin modu
+        # 2. YÖNTEM: Tablo Yoksa Metin Modu
         print("Bilgi: Tablo bulunamadi, metin moduna geciliyor...")
         all_text_data = []
-        with pdfplumber.open(pdf_file) as pdf:
+        with pdfplumber.open(usable_pdf) as pdf:
             for page in pdf.pages:
                 text = page.extract_text()
                 if text:
@@ -52,8 +82,7 @@ def pdf_to_excel(pdf_file, excel_file):
                         all_text_data.append([line])
         
         if not all_text_data:
-            # Burada OCR denenebilir ama Excel için OCR tablosu zordur, şimdilik hata dönüyoruz.
-            print("Hata: PDF bos veya tablo yok.")
+            print("Hata: PDF bos veya okunamadi.")
             sys.exit(1)
 
         df = pd.DataFrame(all_text_data, columns=["PDF İçeriği"])
@@ -63,6 +92,8 @@ def pdf_to_excel(pdf_file, excel_file):
     except Exception as e:
         print(f"Hata (Excel): {e}")
         sys.exit(1)
+    finally:
+        cleanup_temp_file(usable_pdf, is_temp)
 
 # --- 3. YOUTUBE ÖZETİ ---
 def get_youtube_transcript(video_url, output_file):
@@ -88,38 +119,40 @@ def get_youtube_transcript(video_url, output_file):
         sys.exit(1)
 
 # --- 4. PDF METİN ÇIKARMA (CHATPDF & AI SORU HAZIRLAMA) ---
-# BURASI GÜNCELLENDİ: ARTIK OCR (RESİM OKUMA) YETENEĞİ VAR!
+# OCR DESTEKLİ - RESİMLERİ DE OKUR
 def extract_text_from_pdf(pdf_file, output_txt_file):
+    usable_pdf, is_temp = decrypt_pdf_if_needed(pdf_file)
+    
     try:
         full_text = ""
         page_count = 0
         
-        # 1. YÖNTEM: Hızlı Okuma (pdfplumber)
-        with pdfplumber.open(pdf_file) as pdf:
+        # 1. YÖNTEM: Normal Okuma
+        with pdfplumber.open(usable_pdf) as pdf:
             page_count = len(pdf.pages)
             for page in pdf.pages:
                 text = page.extract_text()
                 if text:
                     full_text += text + "\n"
         
-        # 2. KONTROL: Eğer metin çok azsa (Sayfa başı 50 karakterden azsa) OCR devreye girsin
+        # 2. YÖNTEM: OCR Kontrolü (Eğer yazı çok azsa resimdir)
         avg_char_per_page = len(full_text) / page_count if page_count > 0 else 0
         
         if avg_char_per_page < 50:
-            print("Bilgi: Metin bulunamadi (Resim PDF). OCR motoru baslatiliyor (Bu islem biraz sürebilir)...")
+            print("Bilgi: Metin az/yok (Resim PDF). OCR motoru baslatiliyor...")
             
-            # PDF sayfalarını resme çevir
-            images = convert_from_path(pdf_file)
-            full_text = "" # Metni sıfırla, OCR ile yeniden doldur
+            # PDF'i resimlere çevir
+            images = convert_from_path(usable_pdf)
+            full_text = "" # Metni sıfırla
             
             for i, image in enumerate(images):
-                print(f"OCR Taraniyor: Sayfa {i+1}/{len(images)}")
-                # Türkçe ve İngilizce tarama yap
+                # Node.js loglarında ilerlemeyi göstermek için print
+                print(f"OCR Isleniyor: Sayfa {i+1}/{len(images)}")
                 page_text = pytesseract.image_to_string(image, lang='tur+eng')
                 full_text += page_text + "\n"
 
         if not full_text.strip():
-            print("Hata: PDF tamamen bos veya okunamadi.")
+            print("Hata: PDF bos.")
             sys.exit(1)
 
         with open(output_txt_file, "w", encoding="utf-8") as f:
@@ -130,9 +163,12 @@ def extract_text_from_pdf(pdf_file, output_txt_file):
     except Exception as e:
         print(f"Hata (PDF Text/OCR): {e}")
         sys.exit(1)
+    finally:
+        cleanup_temp_file(usable_pdf, is_temp)
 
 # --- ANA YÖNETİCİ ---
 if __name__ == "__main__":
+    # Türkçe karakter sorununu önlemek için
     if sys.stdout.encoding != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
 
@@ -142,6 +178,7 @@ if __name__ == "__main__":
 
     action = sys.argv[1]
 
+    # Dönüştürme İşlemleri (Word/Excel)
     if action == "convert":
         input_path = sys.argv[2]
         output_path = sys.argv[3]
@@ -150,11 +187,13 @@ if __name__ == "__main__":
         elif output_path.endswith('.xlsx'):
             pdf_to_excel(input_path, output_path)
     
+    # YouTube İşlemi
     elif action == "youtube":
         url = sys.argv[2]
         output_txt = sys.argv[3]
         get_youtube_transcript(url, output_txt)
 
+    # Metin Çıkarma (ChatPDF ve Soru Hazırlama için)
     elif action == "pdf_text":
         input_pdf = sys.argv[2]
         output_txt = sys.argv[3]
