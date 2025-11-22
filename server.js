@@ -10,28 +10,30 @@ const aiRoutes = require("./routes/aiRoutes");
 const pdfRoutes = require("./routes/pdfRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
-// const shopierRoutes = require("./routes/shopierRoutes"); // HATA VERDİĞİ İÇİN KAPATTIK
+// const shopierRoutes = require("./routes/shopierRoutes"); // HATA VERDİĞİ İÇİN KAPALI
 
 const app = express();
 
-// --- TRUST PROXY AYARI (Rate Limit Hatası İçin Şart) ---
-app.set('trust proxy', 1); 
+// --- TRUST PROXY AYARI (Nginx İçin Şart) ---
+// Rate limit ve IP loglamanın doğru çalışması için
+app.set('trust proxy', 1);
 
 // --- VERİTABANI BAĞLANTISI ---
 connectDB();
 
-// --- CORS AYARLARI (KAPIYI KİMLERE AÇACAĞIZ?) ---
+// --- CORS AYARLARI (GÜVENLİK VE İZİNLER) ---
 const allowedOrigins = [
   "https://www.odevai.pro",
   "https://odevai.pro",
   "https://api.odevai.pro",
-  "https://odevai-frontend.vercel.app", // <--- İŞTE LOGDAKİ O ADRES BU!
+  "https://odevai-frontend.vercel.app", // Frontend Adresin
   "http://localhost:5173",
   "http://localhost:3000",
 ];
 
 app.use(cors({
     origin: (origin, callback) => {
+      // Postman veya Server-to-Server isteklerde origin null olabilir, izin veriyoruz
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
@@ -44,7 +46,8 @@ app.use(cors({
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
 }));
 
-// Dosya boyutu limitlerini artır (413 Hatası için)
+// --- DOSYA BOYUTU LİMİTLERİ ---
+// Büyük PDF ve Resimler için limitleri artırdık
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
 
@@ -54,18 +57,21 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/pdf", pdfRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/payment", paymentRoutes);
-// app.use("/api/shopier", shopierRoutes); // GEÇİCİ OLARAK KAPALI
+// app.use("/api/shopier", shopierRoutes); // GEÇİCİ KAPALI
 
+// Uploads klasörünü dışarıya aç (Resim/Dosya erişimi için)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.get("/", (req, res) => res.send("Backend Çalışıyor! 🚀"));
+app.get("/", (req, res) => res.send("Backend Çalışıyor! 🚀 (Timeout: 10dk)"));
 
-// --- PORT AYARI ---
+// --- PORT VE SUNUCU BAŞLATMA ---
 const PORT = 5000;
 
 const server = app.listen(PORT, "0.0.0.0", () => 
   console.log(`🔥 Backend ${PORT} portunda çalışıyor`)
 );
 
-// Zaman aşımını 10 dakikaya çıkar (OCR için)
+// --- KRİTİK: ZAMAN AŞIMI AYARI ---
+// Varsayılan 2 dakikadır. OCR işlemleri 3-5 dakika sürebilir.
+// Bunu 10 dakikaya (600.000 ms) çıkarıyoruz.
 server.setTimeout(600000);
